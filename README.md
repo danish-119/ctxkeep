@@ -21,13 +21,13 @@ This is the MVP described in `docs/ctxkeep-mvp-build-spec.md`. If you want the r
 ## Setup
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/danish-119/ctxkeep.git   # get the source
 cd ctxkeep
-npm install
-npm run build
+npm install                                            # install dependencies
+npm run build                                          # compile TypeScript to dist/ (only needed if you plan to run the built CLI directly — see below)
 ```
 
-Everything below assumes you're running the CLI via `npm run dev --` (which runs the TypeScript source directly) or the built `node dist/cli/index.js`. Either works identically.
+Everything below uses the per-command npm scripts (`npm run try`, `npm run init`, `npm run analyze`, `npm run sync`) — each runs the TypeScript source directly via `tsx`, no build step required. Pass arguments after `--`, e.g. `npm run try -- /path/to/some/repo`. Once you've run `npm run build`, the compiled CLI also works directly as `node dist/cli/index.js <command>`.
 
 ## The 4-command demo loop
 
@@ -36,7 +36,7 @@ This is the entire MVP loop end to end, run against any real repo.
 ### 1. `ctxkeep try` — see the value with zero setup
 
 ```bash
-$ npm run dev -- try /path/to/some/repo
+$ npm run try -- /path/to/some/repo   # preview only — reads the repo, writes nothing
 ```
 
 Walks the repo, parses every `.ts`/`.tsx`/`.js`/`.py` file, and prints the `CLAUDE.md` it *would* generate as a diff against nothing. **Writes zero files.** No config, no `.ctxkeep/` directory, nothing on disk changes — this is the "see if it's worth adopting" command.
@@ -44,12 +44,12 @@ Walks the repo, parses every `.ts`/`.tsx`/`.js`/`.py` file, and prints the `CLAU
 ### 2. `ctxkeep init && ctxkeep analyze` — adopt it for real
 
 ```bash
-$ npm run dev -- init /path/to/some/repo
+$ npm run init -- /path/to/some/repo      # one-time: scaffold .ctxkeep/config.yaml
 Wrote .ctxkeep/config.yaml
 Detected typescript across 8 module(s), 36 file(s).
 Next: run `ctxkeep analyze` to populate the graph.
 
-$ npm run dev -- analyze /path/to/some/repo
+$ npm run analyze -- /path/to/some/repo   # full baseline scan: builds the graph and writes CLAUDE.md/AGENTS.md/manifest
 Analyzed 36 file(s).
 Wrote 8 module(s) and 132 symbol(s) to .ctxkeep/graph.sqlite
 Detected 16 convention candidate(s) (existing confirm/reject decisions preserved).
@@ -63,8 +63,8 @@ Run `analyze` again right now with no code changes — it will report `0 written
 ### 3. Edit some code, commit it
 
 ```bash
-$ echo 'export function newThing() {}' >> src/somemodule/file.ts
-$ git add -A && git commit -m "add newThing"
+$ echo 'export function newThing() {}' >> src/somemodule/file.ts   # any code change
+$ git add -A && git commit -m "add newThing"                       # any normal commit
 ```
 
 Any normal commit. CtxKeep doesn't need to know about this in advance.
@@ -72,7 +72,7 @@ Any normal commit. CtxKeep doesn't need to know about this in advance.
 ### 4. `ctxkeep sync` — patch only what changed
 
 ```bash
-$ npm run dev -- sync /path/to/some/repo
+$ npm run sync -- /path/to/some/repo   # patch only what changed since the last checkpoint
 Resynced module "somemodule" (5 symbol(s)).
 Resynced module "othermodule" (3 symbol(s)).
 HEAD is 5f2a91c. 2/8 module(s) resynced.
@@ -84,9 +84,9 @@ Compiled 14 region(s): 2 written, 12 unchanged (no-op).
 **Note on the very first `sync`:** `analyze` never writes to the `checkpoints` table — only `sync` does. So the *first* `sync` you run has no prior checkpoint to diff against, and per the "no checkpoint = everything stale" rule (build spec §4 Milestone 4), it resyncs **every** module once, to establish a baseline. That's expected, not a bug — you'll see every module listed above. Make a *second* edit and commit, then run `sync` again:
 
 ```bash
-$ echo 'export function anotherThing() {}' >> src/somemodule/file.ts
+$ echo 'export function anotherThing() {}' >> src/somemodule/file.ts   # a second code change
 $ git add -A && git commit -m "add anotherThing"
-$ npm run dev -- sync /path/to/some/repo
+$ npm run sync -- /path/to/some/repo                                   # re-sync — only the stale module gets touched
 Resynced module "somemodule" (6 symbol(s)).
 HEAD is 8a1c204. 1/8 module(s) resynced.
 Compiled 14 region(s): 1 written, 13 unchanged (no-op).
@@ -113,7 +113,7 @@ The golden-file suite (`test/goldenFiles.spec.ts`) spawns the actual CLI as a su
 
 ## What's deliberately not here yet
 
-This is an MVP, not the full system described in `ctxkeep-architecture-plan.md`. No LLM calls anywhere in the default path, no plugin system, no adapters beyond Claude, no VS Code extension, no MCP server, and no real symbol-level impact analysis (change detection is module-level: "any file in a module changed" marks the whole module stale, not a precise dependency graph). `docs/ctxkeep-mvp-build-spec.md` §6 has the full, current list of what's cut and what breaks if you forget it's cut.
+This is an MVP, not the full system described in `docs/ctxkeep-architecture-plan.md`. No LLM calls anywhere in the default path, no plugin system, no adapters beyond Claude, no VS Code extension, no MCP server, and no real symbol-level impact analysis (change detection is module-level: "any file in a module changed" marks the whole module stale, not a precise dependency graph). `docs/ctxkeep-mvp-build-spec.md` §6 has the full, current list of what's cut and what breaks if you forget it's cut.
 
 ## License
 
