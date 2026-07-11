@@ -1,6 +1,13 @@
 # CtxKeep
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![status](https://img.shields.io/badge/status-MVP%20%2F%20pre--1.0-orange)
+
 CtxKeep keeps `CLAUDE.md`, `AGENTS.md`, and `.ai/manifest.md` in sync with your actual codebase — automatically, incrementally, and without ever touching content you wrote by hand.
+
+## Why CtxKeep exists
+
+AI coding assistants lose track of a project in two ways: context rot, where understanding degrades as a codebase grows past what fits usefully in a context window, and session amnesia, where every new session starts cold unless context is deliberately re-supplied. Most attempts to fix this — CLAUDE.md, AGENTS.md, memory banks, manifests — add a third problem on top: artifact drift, where those hand-maintained files quietly go stale or start contradicting each other because nothing keeps them in sync with the code automatically. CtxKeep exists to close that gap by keeping those artifacts accurate on its own, so the other two problems have less room to recur.
 
 It parses your repo with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), tracks what's changed since the last commit it looked at, and patches only the parts of those files that need it — leaving everything else, including any hand-written prose sharing the same file, byte-for-byte untouched.
 
