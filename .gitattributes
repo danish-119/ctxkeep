@@ -1,0 +1,8 @@
+# CtxKeep-generated, committed artifacts must stay LF regardless of a
+# contributor's core.autocrlf setting — patchRegion (src/compiler/patchRegion.ts)
+# always reads/writes LF, so a CRLF checkout would make untouched regions look
+# "changed" the moment any other region gets patched. See DECISIONS.md.
+CLAUDE.md text eol=lf
+AGENTS.md text eol=lf
+.ai/manifest.md text eol=lf
+.ctxkeep/config.yaml text eol=lf

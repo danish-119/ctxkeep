@@ -1,0 +1,48 @@
+{
+  "name": "ctxkeep",
+  "version": "0.1.0",
+  "description": "The AI Context Operating System — keeps CLAUDE.md and AGENTS.md in sync with a living codebase.",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "ctxkeep": "dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/index.ts",
+    "try": "tsx src/cli/index.ts try",
+    "init": "tsx src/cli/index.ts init",
+    "analyze": "tsx src/cli/index.ts analyze",
+    "sync": "tsx src/cli/index.ts sync",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.9.0",
+    "commander": "^13.1.0",
+    "diff": "^7.0.0",
+    "ignore": "^6.0.2",
+    "js-yaml": "^4.1.0",
+    "simple-git": "^3.27.0",
+    "tree-sitter": "0.21.1",
+    "tree-sitter-javascript": "0.23.1",
+    "tree-sitter-python": "0.21.0",
+    "tree-sitter-typescript": "0.23.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/diff": "^6.0.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
