@@ -5,7 +5,7 @@ import { buildModel, type ContextModel } from './analysis/model';
 import { detectConventions } from './analysis/conventions';
 import { findProjectRoots } from './analysis/projects';
 import { loadConfig } from './config/io';
-import type { Config } from './config/schema';
+import type { ArtifactConfig, Config } from './config/schema';
 import { graphPath, openGraph, openMemoryGraph } from './graph/db';
 import { countPendingConventions, listEmittableConventions, listLapsedConventions, syncConventions, type ConventionRow } from './graph/conventions';
 import { planArtifacts, renderArtifacts, resolveArtifactConfigs, writeArtifacts, type ArtifactResult } from './artifacts/plan';
@@ -37,6 +37,8 @@ export interface PipelineOptions {
 
 export interface PipelineReport {
   config: Config;
+  /** The resolved artifact list this run maintained. */
+  artifacts: ArtifactConfig[];
   configFound: boolean;
   refresh: RefreshResult;
   model: ContextModel;
@@ -123,6 +125,7 @@ export function runPipeline(options: PipelineOptions): PipelineReport {
 
     return {
       config,
+      artifacts,
       configFound,
       refresh,
       model,

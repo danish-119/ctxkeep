@@ -45,6 +45,16 @@ export const ConfigSchema = z
     ignore: z.array(z.string()).default([]),
     /** Artifacts to maintain. Omit to use the defaults (AGENTS.md, CLAUDE.md, ARCHITECTURE.md, .ai/manifest.md). */
     artifacts: z.array(ArtifactConfigSchema).optional(),
+    /** `ctxkeep check`: which hand-written docs to verify against the code, and references to never flag. */
+    drift: z
+      .object({
+        /** Extra markdown files or globs to check, beyond the artifacts, README.md and CONTRIBUTING.md. */
+        files: z.array(z.string().min(1)).default([]),
+        /** Exact references (as written in the doc, e.g. `legacy/old.ts`) that must never be reported. */
+        ignore: z.array(z.string().min(1)).default([]),
+      })
+      .strict()
+      .default({}),
   })
   .strict();
 

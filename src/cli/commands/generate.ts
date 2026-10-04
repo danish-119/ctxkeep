@@ -1,4 +1,5 @@
 import { runPipeline, type PipelineMode } from '../../pipeline';
+import { findDrift, formatFinding } from '../../drift';
 import {
   describeChanges,
   handleError,
@@ -66,6 +67,14 @@ export function runGenerate(mode: Exclude<PipelineMode, 'try'>, targetArg: strin
   }
   if (options.dryRun) console.log('\nDry run: nothing was written (graph included).');
   printWarningsAndFollowUps(report);
+
+  // A reminder, not a failure: `ctxkeep check` is the command that fails on drift.
+  const drift = findDrift(targetDir, report.config, report.artifacts, report.model);
+  if (drift.length > 0) {
+    console.log(`\nHand-written docs: ${drift.length} statement(s) no longer match the code, e.g.`);
+    for (const f of drift.slice(0, 3)) console.log(`  ${formatFinding(f)}`);
+    console.log('Run `ctxkeep check` for the full list.');
+  }
 
   if (attention) process.exitCode = 1;
 }
