@@ -369,6 +369,39 @@ describe('repos holding several apps', () => {
   });
 });
 
+describe('convention decisions are committed, not cached', () => {
+  const CONVENTIONAL = {
+    'src/api/a.ts': 'export function a() {}\n',
+    'src/api/b.ts': 'export function b() {}\n',
+    'src/api/c.ts': 'export function c() {}\n',
+  };
+
+  it('regenerates identical docs on a fresh clone (no graph) from .ctxkeep/conventions.yaml', () => {
+    const root = repo(CONVENTIONAL);
+    writeFiles(root, { '.ctxkeep/conventions.yaml': 'confirmed:\n  - src/api:export-style:named\nrejected: []\n' });
+    analyze(root);
+    const agents = read(root, 'AGENTS.md');
+    expect(agents).toContain('- Files in `src/api/` use named exports only (no default exports).');
+
+    fs.rmSync(graphPath(root)); // what a fresh clone or a CI runner sees
+    const report = runPipeline({ rootDir: root, mode: 'sync', preview: true });
+    expect(report.results.every((r) => r.action === 'unchanged')).toBe(true);
+    expect(read(root, 'AGENTS.md')).toBe(agents);
+  });
+
+  it('exports decisions held only in an older graph to the file, once', () => {
+    const root = repo(CONVENTIONAL);
+    analyze(root);
+    const db = require('better-sqlite3')(graphPath(root));
+    db.prepare("UPDATE conventions SET status = 'confirmed' WHERE id = 'src/api:export-style:named'").run();
+    db.close();
+
+    sync(root);
+    expect(read(root, '.ctxkeep/conventions.yaml')).toContain('- src/api:export-style:named');
+    expect(read(root, 'AGENTS.md')).toContain('use named exports only');
+  });
+});
+
 describe('determinism', () => {
   it('two fresh analyses of the same tree produce byte-identical artifacts', () => {
     const a = repo(BASE);

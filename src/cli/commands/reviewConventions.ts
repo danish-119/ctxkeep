@@ -2,7 +2,8 @@ import readline from 'node:readline';
 import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
 import { openFreshGraph } from '../../pipeline';
-import { countPendingConventions, listPendingConventions, setConventionStatus, type ConventionRow } from '../../graph/conventions';
+import { countPendingConventions, decidedConventions, listPendingConventions, setConventionStatus, type ConventionRow } from '../../graph/conventions';
+import { writeDecisions } from '../../config/decisions';
 import { handleError, resolveTarget } from '../shared';
 
 /** Ranked, not dumped — the top 10 by agreement, never the whole backlog at once. */
@@ -75,6 +76,8 @@ export function registerReviewCommand(program: Command): void {
         for await (const line of rl) {
           const outcome = applyReviewAnswer(db, pending[index], line);
           tally[outcome] += 1;
+          // Saved after every answer, so an interrupted review keeps what was decided.
+          if (outcome !== 'skipped') writeDecisions(targetDir, decidedConventions(db));
           console.log(`  -> ${outcome}${outcome === 'skipped' ? ' (will reappear next time)' : ''}\n`);
           index += 1;
           if (index >= pending.length) break;
@@ -83,6 +86,7 @@ export function registerReviewCommand(program: Command): void {
         rl.close();
 
         console.log(`${tally.confirmed} confirmed, ${tally.rejected} rejected, ${tally.skipped} skipped.`);
+        if (tally.confirmed + tally.rejected > 0) console.log('Decisions saved to .ctxkeep/conventions.yaml (commit it).');
         if (tally.confirmed > 0) console.log('Run `ctxkeep sync` to write confirmed conventions into your artifacts.');
       } finally {
         db.close();

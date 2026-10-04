@@ -7,7 +7,16 @@ import { findProjectRoots } from './analysis/projects';
 import { loadConfig } from './config/io';
 import type { ArtifactConfig, Config } from './config/schema';
 import { graphPath, openGraph, openMemoryGraph } from './graph/db';
-import { countPendingConventions, listEmittableConventions, listLapsedConventions, syncConventions, type ConventionRow } from './graph/conventions';
+import {
+  applyDecisions,
+  countPendingConventions,
+  decidedConventions,
+  listEmittableConventions,
+  listLapsedConventions,
+  syncConventions,
+  type ConventionRow,
+} from './graph/conventions';
+import { readDecisions, writeDecisions } from './config/decisions';
 import { planArtifacts, renderArtifacts, resolveArtifactConfigs, writeArtifacts, type ArtifactResult } from './artifacts/plan';
 import { SCHEMA_SQL } from './graph/schema';
 
@@ -93,11 +102,26 @@ export function openFreshGraph(rootDir: string): Database.Database {
     refreshGraph(db, rootDir, { extraIgnores: config.ignore });
     const projectRoots = findProjectRoots(rootDir, config.ignore);
     syncConventions(db, detectConventions(buildModel(db, rootDir, config.modules, projectRoots)));
+    reconcileDecisions(db, rootDir, false);
     return db;
   } catch (err) {
     db.close();
     throw err;
   }
+}
+
+/**
+ * The committed `.ctxkeep/conventions.yaml` is the source of truth for review
+ * decisions; the graph mirrors it. A graph from before that file existed
+ * still holds decisions, which are exported to the file once (unless previewing).
+ */
+function reconcileDecisions(db: Database.Database, rootDir: string, preview: boolean): void {
+  let decisions = readDecisions(rootDir);
+  if (!decisions) {
+    decisions = decidedConventions(db);
+    if (!preview && decisions.confirmed.length + decisions.rejected.length > 0) writeDecisions(rootDir, decisions);
+  }
+  applyDecisions(db, decisions);
 }
 
 export function runPipeline(options: PipelineOptions): PipelineReport {
@@ -113,6 +137,7 @@ export function runPipeline(options: PipelineOptions): PipelineReport {
     const model = buildModel(db, rootDir, config.modules, projectRoots);
 
     syncConventions(db, detectConventions(model));
+    reconcileDecisions(db, rootDir, preview);
     const conventions = listEmittableConventions(db);
 
     const plans = planArtifacts({ rootDir, model, conventions, artifacts });

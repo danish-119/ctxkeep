@@ -87,6 +87,40 @@ export function listLapsedConventions(db: Database.Database): ConventionRow[] {
   return (db.prepare(`${SELECT} WHERE status = 'confirmed' AND active = 0 ORDER BY id`).all() as RawRow[]).map(fromRaw);
 }
 
+/** Decisions currently recorded in the graph (used to export them to `.ctxkeep/conventions.yaml`). */
+export function decidedConventions(db: Database.Database): { confirmed: string[]; rejected: string[] } {
+  const rows = db.prepare("SELECT id, status FROM conventions WHERE status != 'pending' ORDER BY id").all() as { id: string; status: string }[];
+  return {
+    confirmed: rows.filter((r) => r.status === 'confirmed').map((r) => r.id),
+    rejected: rows.filter((r) => r.status === 'rejected').map((r) => r.id),
+  };
+}
+
+/**
+ * Makes the graph mirror the committed decisions file: listed ids get their
+ * status, everything else is pending. A decided id with no row yet (a fresh
+ * clone, or a pattern the code no longer follows) gets an inactive
+ * placeholder row, so it's still remembered — and reported as lapsed if confirmed.
+ */
+export function applyDecisions(db: Database.Database, decisions: { confirmed: string[]; rejected: string[] }): void {
+  const placeholder = db.prepare(`
+    INSERT OR IGNORE INTO conventions (id, module_id, pattern_type, value, statement, matched, sample_size, status, active, evidence_file_paths)
+    VALUES (@id, @moduleId, @patternType, @value, @id, 0, 0, 'pending', 0, '[]')
+  `);
+  const setStatus = db.prepare('UPDATE conventions SET status = ? WHERE id = ?');
+  db.transaction(() => {
+    db.prepare("UPDATE conventions SET status = 'pending'").run();
+    for (const [status, ids] of [['confirmed', decisions.confirmed], ['rejected', decisions.rejected]] as const) {
+      for (const id of ids) {
+        // ids are `<module>:<pattern>:<value>`, and values may themselves contain `:` (`dir:test`).
+        const m = /^(.*?):(export-style|file-naming|test-location|test-naming):(.*)$/.exec(id);
+        placeholder.run({ id, moduleId: m?.[1] ?? '.', patternType: m?.[2] ?? 'unknown', value: m?.[3] ?? id });
+        setStatus.run(status, id);
+      }
+    }
+  })();
+}
+
 export function setConventionStatus(db: Database.Database, id: string, status: 'confirmed' | 'rejected'): void {
   db.prepare('UPDATE conventions SET status = ? WHERE id = ?').run(status, id);
 }
