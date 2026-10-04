@@ -81,6 +81,8 @@ export interface ContextModel {
 function ctxkeepCommand(rootDir: string): string {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+    // CtxKeep's own repo: run the code being worked on, from source.
+    if (pkg?.name === 'ctxkeep' && pkg?.scripts?.dev) return 'npm run dev --';
     return pkg?.dependencies?.ctxkeep || pkg?.devDependencies?.ctxkeep ? 'npx ctxkeep' : 'ctxkeep';
   } catch {
     return 'ctxkeep';

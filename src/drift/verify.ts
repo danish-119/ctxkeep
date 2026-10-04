@@ -58,7 +58,10 @@ function closest(target: string, options: Iterable<string>, maxDistance: number)
   let best: string | undefined;
   let bestDistance = Infinity;
   for (const option of options) {
-    const d = option.startsWith(target) || target.startsWith(option) ? 1 : levenshtein(target, option);
+    // Edit distance, but a prefix relation (`test:unit` → `test`) counts as just over 1 so a real
+    // one-letter typo (`formatPrise` → `formatPrice`) still wins over a mere prefix (`format`).
+    const prefix = option.startsWith(target) || target.startsWith(option) ? 1 + Math.abs(option.length - target.length) / 100 : Infinity;
+    const d = Math.min(levenshtein(target, option), prefix);
     if (d < bestDistance || (d === bestDistance && best !== undefined && option < best)) {
       best = option;
       bestDistance = d;
@@ -196,7 +199,8 @@ export function verifyRefs(refs: DocRef[], ctx: VerifyContext): DriftFinding[] {
       if (ref.tool === 'make') {
         const dir = ref.cwd ? (fs.existsSync(path.join(rootDir, base, 'Makefile')) ? base : null) : nearest(base, 'Makefile');
         if (!dir) {
-          findings.push({ file: ref.file, line: ref.line, kind: 'command', reference: ref.text, message: `no Makefile in \`${ref.cwd ?? docDir}\`` });
+          const where = ref.cwd ? `in \`${base}\`` : 'in this project';
+          findings.push({ file: ref.file, line: ref.line, kind: 'command', reference: ref.text, message: `there is no Makefile ${where} for this command` });
           continue;
         }
         const targets = makeTargets(path.join(rootDir, dir, 'Makefile'));

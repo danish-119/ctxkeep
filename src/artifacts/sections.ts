@@ -191,8 +191,25 @@ const conventions: SectionDef = {
     const lines = ['## Conventions', ''];
     if (rows.length === 0) {
       lines.push('_None confirmed yet. Run `ctxkeep review conventions` to confirm detected patterns._');
-    } else {
-      for (const c of rows) lines.push(`- ${c.statement}`);
+      return lines.join('\n');
+    }
+    // The same rule confirmed for several modules is stated once, listing the modules,
+    // rather than once per module in an always-loaded file.
+    const groups = new Map<string, ConventionRow[]>();
+    for (const c of rows) {
+      const key = `${c.patternType}\0${c.value}`;
+      groups.set(key, [...(groups.get(key) ?? []), c]);
+    }
+    for (const group of groups.values()) {
+      const first = group[0];
+      const token = (moduleId: string) => (moduleId === ROOT_MODULE ? 'the repository root' : `\`${moduleId}/\``);
+      if (group.length > 1 && group.every((c) => c.statement === first.statement.replace(token(first.moduleId), token(c.moduleId)))) {
+        const names = group.map((c) => token(c.moduleId));
+        const list = names.length === 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+        lines.push(`- ${first.statement.replace(token(first.moduleId), list)}`);
+      } else {
+        for (const c of group) lines.push(`- ${c.statement}`);
+      }
     }
     return lines.join('\n');
   },
