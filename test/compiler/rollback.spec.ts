@@ -1,131 +1,67 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
-import simpleGit from 'simple-git';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SCHEMA_SQL } from '../../src/graph/schema';
-import { patchRegion } from '../../src/compiler/patchRegion';
-import { rollbackArtifacts } from '../../src/compiler/rollback';
+import { describe, expect, it } from 'vitest';
+import { planRollback, writeRollback } from '../../src/compiler/rollback';
+import { formatRegion } from '../../src/compiler/markers';
+import { commitAll, initGitRepo, read, tempDir, writeFiles } from '../helpers';
 
-let repoDir: string;
-let db: Database.Database;
+/** Rollback works from the files alone: no graph, so it behaves the same on a fresh clone. */
 
-async function initGitRepo(): Promise<ReturnType<typeof simpleGit>> {
-  const git = simpleGit(repoDir);
-  await git.init();
-  await git.addConfig('user.email', 'test@example.com');
-  await git.addConfig('user.name', 'Test');
-  return git;
+function committedRepo(files: Record<string, string>): string {
+  const root = tempDir('ctxkeep-rb-');
+  writeFiles(root, files);
+  initGitRepo(root);
+  return root;
 }
 
-beforeEach(() => {
-  repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctxkeep-rollback-test-'));
-  db = new Database(':memory:');
-  db.exec(SCHEMA_SQL);
-});
+describe('planRollback', () => {
+  it('restores a drifted region to HEAD, leaving human text and other regions alone', () => {
+    const committed = `# Mine\n\nHuman intro.\n\n${formatRegion('a', 'A at head')}\n\n${formatRegion('b', 'B')}\n`;
+    const root = committedRepo({ 'AGENTS.md': committed });
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), committed.replace('A at head', 'A drifted').replace('Human intro.', 'Human intro, edited.'));
 
-afterEach(() => {
-  db.close();
-  fs.rmSync(repoDir, { recursive: true, force: true });
-});
-
-describe('rollbackArtifacts — restores drifted regions to their last-committed content', () => {
-  it('reverts a region that was hand-edited after the last commit', async () => {
-    const filePath = path.join(repoDir, 'CLAUDE.md');
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'overview', newContent: 'committed content' });
-
-    const git = await initGitRepo();
-    await git.add('.');
-    await git.commit('initial analyze');
-
-    // Simulate drift: a hand-edit (or an undesired sync) changes the region's
-    // content without a new commit.
-    fs.writeFileSync(filePath, fs.readFileSync(filePath, 'utf8').replace('committed content', 'accidental edit'), 'utf8');
-
-    const outcomes = await rollbackArtifacts(db, repoDir);
-    expect(outcomes).toEqual([{ artifactPath: 'CLAUDE.md', regionId: 'overview', status: 'restored' }]);
-
-    const restored = fs.readFileSync(filePath, 'utf8');
-    expect(restored).toContain('committed content');
-    expect(restored).not.toContain('accidental edit');
+    const [r] = planRollback(root, ['AGENTS.md']);
+    expect(r.action).toBe('restore');
+    expect(r.outcomes.filter((o) => o.status === 'updated').map((o) => o.id)).toEqual(['a']);
+    writeRollback(root, [r]);
+    const text = read(root, 'AGENTS.md');
+    expect(text).toContain('A at head');
+    expect(text).toContain('Human intro, edited.'); // rollback only touches regions
   });
 
-  it('reports no_op (and does not touch the file) when the region already matches HEAD', async () => {
-    const filePath = path.join(repoDir, 'CLAUDE.md');
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'overview', newContent: 'stable content' });
-
-    const git = await initGitRepo();
-    await git.add('.');
-    await git.commit('initial analyze');
-
-    fs.chmodSync(filePath, 0o444); // any write attempt would throw
-    let outcomes;
-    try {
-      outcomes = await rollbackArtifacts(db, repoDir);
-    } finally {
-      fs.chmodSync(filePath, 0o644);
-    }
-
-    expect(outcomes).toEqual([{ artifactPath: 'CLAUDE.md', regionId: 'overview', status: 'no_op' }]);
+  it('is a no-op when regions already match HEAD', () => {
+    const root = committedRepo({ 'AGENTS.md': `${formatRegion('a', 'A')}\n` });
+    expect(planRollback(root, ['AGENTS.md'])[0].action).toBe('unchanged');
   });
 
-  it('preserves human-owned content outside the markers, and other unaffected regions', async () => {
-    const filePath = path.join(repoDir, 'CLAUDE.md');
-    fs.writeFileSync(filePath, '# My Project\n\nHuman intro paragraph.\n', 'utf8');
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'overview', newContent: 'overview v1' });
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'modules', newContent: 'modules v1' });
-
-    const git = await initGitRepo();
-    await git.add('.');
-    await git.commit('initial analyze');
-
-    // Drift only the overview region.
-    const drifted = fs.readFileSync(filePath, 'utf8').replace('overview v1', 'overview DRIFTED');
-    fs.writeFileSync(filePath, drifted, 'utf8');
-
-    await rollbackArtifacts(db, repoDir);
-
-    const text = fs.readFileSync(filePath, 'utf8');
-    expect(text).toContain('# My Project');
-    expect(text).toContain('Human intro paragraph.');
-    expect(text).toContain('overview v1');
-    expect(text).not.toContain('overview DRIFTED');
-    expect(text).toContain('modules v1'); // untouched region survives too
+  it('keeps regions added since HEAD and re-inserts regions removed since HEAD', () => {
+    const root = committedRepo({ 'AGENTS.md': `${formatRegion('a', 'A')}\n\n${formatRegion('b', 'B')}\n` });
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), `${formatRegion('a', 'A')}\n\n${formatRegion('c', 'C new')}\n`);
+    const [r] = planRollback(root, ['AGENTS.md']);
+    expect(r.newSinceHead).toEqual(['c']);
+    writeRollback(root, [r]);
+    const text = read(root, 'AGENTS.md');
+    expect(text).toContain('C new');
+    expect(text).toContain(formatRegion('b', 'B'));
   });
 
-  it('reports not_found_at_head for an artifact that was never committed', async () => {
-    const filePath = path.join(repoDir, 'CLAUDE.md');
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'overview', newContent: 'uncommitted content' });
-
-    await initGitRepo(); // repo exists, but nothing has been committed yet
-
-    const outcomes = await rollbackArtifacts(db, repoDir);
-    expect(outcomes).toEqual([{ artifactPath: 'CLAUDE.md', regionId: 'overview', status: 'not_found_at_head' }]);
+  it('restores an artifact file deleted since HEAD, and skips one never committed', () => {
+    const root = committedRepo({ 'docs/src-api.md': `${formatRegion('module:src/api', 'X')}\n` });
+    fs.rmSync(path.join(root, 'docs/src-api.md'));
+    writeFiles(root, { 'NEW.md': `${formatRegion('a', 'A')}\n` });
+    const results = planRollback(root, ['docs/src-api.md', 'NEW.md']);
+    expect(results.map((r) => r.action)).toEqual(['restore', 'skipped']);
+    writeRollback(root, results);
+    expect(read(root, 'docs/src-api.md')).toContain('module:src/api');
   });
 
-  it('reports region_not_in_head for a region added after the last commit', async () => {
-    const filePath = path.join(repoDir, 'CLAUDE.md');
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'overview', newContent: 'v1' });
-
-    const git = await initGitRepo();
-    await git.add('.');
-    await git.commit('initial analyze');
-
-    // A brand new region added after the commit, never yet committed.
-    patchRegion({ db, filePath, artifactPath: 'CLAUDE.md', regionId: 'modules', newContent: 'brand new region' });
-
-    const outcomes = await rollbackArtifacts(db, repoDir);
-    const modulesOutcome = outcomes.find((o) => o.regionId === 'modules');
-    expect(modulesOutcome?.status).toBe('region_not_in_head');
-
-    // And the new region's content must survive rollback — nothing to revert it to.
-    expect(fs.readFileSync(filePath, 'utf8')).toContain('brand new region');
-  });
-
-  it('returns an empty list when nothing has ever been analyzed (no bindings)', async () => {
-    await initGitRepo();
-    const outcomes = await rollbackArtifacts(db, repoDir);
-    expect(outcomes).toEqual([]);
+  it('works from a subdirectory of a larger repository', () => {
+    const outer = tempDir('ctxkeep-rb-outer-');
+    writeFiles(outer, { 'pkg/AGENTS.md': `${formatRegion('a', 'A')}\n` });
+    initGitRepo(outer);
+    const root = path.join(outer, 'pkg');
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), `${formatRegion('a', 'changed')}\n`);
+    expect(planRollback(root, ['AGENTS.md'])[0].action).toBe('restore');
+    commitAll(outer, 'x');
   });
 });

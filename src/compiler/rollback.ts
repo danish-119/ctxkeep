@@ -1,67 +1,71 @@
+import fs from 'node:fs';
 import path from 'node:path';
-import type Database from 'better-sqlite3';
-import { readFileAtHead } from '../analysis/gitChanges';
-import { listAllBindings } from '../graph/bindings';
-import { patchRegion, extractRegionContent } from './patchRegion';
+import { readFileAtHead } from '../analysis/git';
+import { applyRegions, type RegionOutcome } from './apply';
+import { parseRegions } from './markers';
 
-export type RollbackStatus = 'restored' | 'no_op' | 'not_found_at_head' | 'region_not_in_head';
+export type RollbackAction = 'restore' | 'unchanged' | 'skipped' | 'error';
 
-export interface RollbackOutcome {
-  artifactPath: string;
-  regionId: string;
-  status: RollbackStatus;
+export interface RollbackResult {
+  path: string;
+  action: RollbackAction;
+  /** Text to write (restore only). */
+  after: string | null;
+  /** Per-region outcome: `updated`/`added` here mean "restored to HEAD". */
+  outcomes: RegionOutcome[];
+  /** Regions present now but not at HEAD — left alone. */
+  newSinceHead: string[];
+  reason?: string;
 }
 
 /**
- * `ctxkeep rollback` (build spec §22/§34): reverts every CtxKeep-owned
- * region back to its content as of the last git commit (HEAD) — see
- * DECISIONS.md for why this is "regenerate from HEAD," not a from-scratch
- * SQLite history/backup mechanism. Reuses patchRegion for the actual splice,
- * so it inherits the exact same marker-only, NO_OP, and human-content-
- * preserving guarantees as every other write path in the compiler.
+ * `ctxkeep rollback`: puts every CtxKeep region in the given artifacts back
+ * to its content at HEAD, leaving everything outside the markers alone.
+ *
+ * Works purely from the files (markers carry their own ids and hashes), so
+ * it behaves the same on a fresh clone with no graph. Regions added since
+ * HEAD are kept — there is no earlier version to return to. If an artifact
+ * file was deleted since HEAD (e.g. a per-module doc whose module was
+ * removed), it's restored whole.
  */
-export async function rollbackArtifacts(db: Database.Database, targetDir: string): Promise<RollbackOutcome[]> {
-  const bindings = listAllBindings(db);
-  const headContentCache = new Map<string, string | null>();
-  const outcomes: RollbackOutcome[] = [];
+export function planRollback(rootDir: string, artifactPaths: string[]): RollbackResult[] {
+  return artifactPaths.map((relPath): RollbackResult => {
+    const base = { path: relPath, after: null, outcomes: [] as RegionOutcome[], newSinceHead: [] as string[] };
+    const head = readFileAtHead(rootDir, relPath);
+    const absPath = path.join(rootDir, relPath);
+    const current = fs.existsSync(absPath) ? fs.readFileSync(absPath, 'utf8') : null;
 
-  for (const binding of bindings) {
-    let headContent = headContentCache.get(binding.artifactPath);
-    if (headContent === undefined) {
-      headContent = await readFileAtHead(targetDir, binding.artifactPath);
-      headContentCache.set(binding.artifactPath, headContent);
+    if (head === null) return { ...base, action: 'skipped', reason: 'not in HEAD (never committed) — nothing to roll back to' };
+    if (current === null) {
+      return { ...base, action: 'restore', after: head, reason: 'file was deleted since HEAD — restored whole' };
     }
 
-    if (headContent === null) {
-      outcomes.push({ artifactPath: binding.artifactPath, regionId: binding.regionId, status: 'not_found_at_head' });
-      continue;
+    try {
+      const headRegions = parseRegions(head.replace(/\r\n/g, '\n'), `${relPath}@HEAD`);
+      const currentIds = parseRegions(current.replace(/\r\n/g, '\n'), relPath).map((r) => r.id);
+      const headIds = new Set(headRegions.map((r) => r.id));
+      const out = applyRegions({
+        fileLabel: relPath,
+        existing: current,
+        desired: headRegions.map((r) => ({ id: r.id, content: r.content })),
+        isOrphan: () => false,
+        force: true, // rollback's whole purpose is to undo edits inside regions
+      });
+      const newSinceHead = currentIds.filter((id) => !headIds.has(id));
+      return { ...base, action: out.changed ? 'restore' : 'unchanged', after: out.changed ? out.text : null, outcomes: out.outcomes, newSinceHead };
+    } catch (err) {
+      return { ...base, action: 'error', reason: (err as Error).message };
     }
+  });
+}
 
-    const regionContent = extractRegionContent(headContent, binding.regionId);
-    if (regionContent === null) {
-      outcomes.push({ artifactPath: binding.artifactPath, regionId: binding.regionId, status: 'region_not_in_head' });
-      continue;
-    }
-
-    const result = patchRegion({
-      db,
-      filePath: path.join(targetDir, binding.artifactPath),
-      artifactPath: binding.artifactPath,
-      regionId: binding.regionId,
-      newContent: regionContent,
-      // The cached hash in artifact_bindings reflects the last WRITE, not
-      // necessarily what's on disk right now — rollback exists specifically
-      // to handle drift the cache doesn't know about (hand-edits, or an
-      // undesired prior sync). Compare against disk reality, not the cache.
-      verifyAgainstDisk: true,
-    });
-
-    outcomes.push({
-      artifactPath: binding.artifactPath,
-      regionId: binding.regionId,
-      status: result === 'NO_OP' ? 'no_op' : 'restored',
-    });
+export function writeRollback(rootDir: string, results: RollbackResult[]): void {
+  for (const r of results) {
+    if (r.action !== 'restore' || r.after === null) continue;
+    const absPath = path.join(rootDir, r.path);
+    fs.mkdirSync(path.dirname(absPath), { recursive: true });
+    const tmp = `${absPath}.ctxkeep-${process.pid}.tmp`;
+    fs.writeFileSync(tmp, r.after, 'utf8');
+    fs.renameSync(tmp, absPath);
   }
-
-  return outcomes;
 }
