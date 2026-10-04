@@ -1,5 +1,6 @@
 # CtxKeep
 
+[![npm](https://img.shields.io/npm/v/ctxkeep)](https://www.npmjs.com/package/ctxkeep)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![status](https://img.shields.io/badge/status-v0.2%20%2F%20pre--1.0-orange)
 
