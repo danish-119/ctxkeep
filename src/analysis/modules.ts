@@ -1,85 +1,94 @@
-import type { Language, ParsedFile } from './types';
+/**
+ * Folder-based module inference. A module's id IS its repo-relative folder
+ * path (`src/api`, `packages/web`, `test`, `.` for the root), so every id
+ * printed into an artifact is a real path an agent can open — v0.1 used bare
+ * folder names and mislabelled `test/` as `src/test/**`.
+ */
 
-export interface ModuleSymbolSample {
-  name: string;
-  kind: string;
-  file: string;
-}
-
-export interface ModuleSummary {
-  name: string;
-  fileCount: number;
-  languages: Language[];
-  sampleSymbols: ModuleSymbolSample[];
-}
-
-const SAMPLE_SYMBOLS_PER_MODULE = 5;
+export const ROOT_MODULE = '.';
 
 /**
- * Groups parsed files into top-level "modules" by folder structure only
- * (module = folder, no real boundary detection — see build spec §6, "corner
- * cut" table). If the repo has a root src/ directory, grouping happens
- * relative to it so `src/foo/x.ts` and `src/bar/y.ts` become modules `foo`
- * and `bar` instead of everything collapsing under `src`.
+ * Directories that group modules rather than being one: `src/api` and
+ * `src/cli` are two modules, not one `src` module. Covers JS/TS monorepos
+ * (packages, apps, libs), Flutter (`lib`), Go (`cmd`, `internal`, `pkg`), and
+ * service-oriented layouts.
  */
-export function hasSrcRoot(files: { relPath: string }[]): boolean {
-  return files.some((f) => f.relPath === 'src' || f.relPath.startsWith('src/'));
+const CONTAINER_DIRS = new Set(['src', 'lib', 'packages', 'apps', 'libs', 'services', 'modules', 'cmd', 'internal', 'pkg']);
+
+const TEST_DIRS = new Set(['test', 'tests', '__tests__', 'spec', 'specs', 'e2e', 'testing', 'integration_test', 'androidTest']);
+
+const TEST_FILE_PATTERNS = [
+  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /(^|\/)test_[^/]+\.py$/,
+  /_test\.(py|go|dart)$/,
+  /Tests?\.(swift|kt|java|cs)$/,
+];
+
+/** True for test files and anything under a test directory (fixtures included). */
+export function isTestPath(relPath: string): boolean {
+  const parts = relPath.split('/');
+  if (parts.slice(0, -1).some((p) => TEST_DIRS.has(p) || p === '__fixtures__' || p === 'fixtures')) return true;
+  return TEST_FILE_PATTERNS.some((re) => re.test(relPath));
 }
 
-/** The glob a module's inferred folder maps to, used for config/graph path_glob fields. */
-export function moduleGlob(name: string, srcRooted: boolean): string {
-  if (name === '(root)') return srcRooted ? 'src/*' : '*';
-  return srcRooted ? `src/${name}/**` : `${name}/**`;
+export interface ModuleOverride {
+  /** Glob over folders, e.g. `src/features/*` (one module per child) or `src/legacy/**` (one module). */
+  path: string;
+  name?: string;
 }
 
-/** Which inferred module a given relPath belongs to — the single source of truth for the folder→module heuristic. */
-export function moduleNameForRelPath(relPath: string, srcRooted: boolean): string {
-  let rel = relPath;
-  if (srcRooted && rel.startsWith('src/')) {
-    rel = rel.slice('src/'.length);
+function matchOverride(dirParts: string[], override: ModuleOverride): string | null {
+  const patternParts = override.path.replace(/\/+$/, '').split('/');
+  if (patternParts[patternParts.length - 1] === '**') patternParts.pop();
+  if (patternParts.length === 0 || patternParts.length > dirParts.length) return null;
+
+  for (let i = 0; i < patternParts.length; i += 1) {
+    const pattern = patternParts[i];
+    if (pattern === '*' || pattern === '**') continue;
+    const re = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')}$`);
+    if (!re.test(dirParts[i])) return null;
   }
-  const parts = rel.split('/');
-  return parts.length > 1 ? parts[0] : '(root)';
+  return dirParts.slice(0, patternParts.length).join('/');
 }
 
-export function inferModules(files: ParsedFile[]): ModuleSummary[] {
-  const srcRooted = hasSrcRoot(files);
-  const modules = new Map<string, ModuleSummary>();
+/**
+ * The single source of truth for "which module does this file belong to".
+ * Config overrides win (first match); otherwise the first folder, or the
+ * first two when the first is a container directory.
+ */
+export function moduleIdForPath(relPath: string, overrides: ModuleOverride[] = []): string {
+  const parts = relPath.split('/');
+  const dirParts = parts.slice(0, -1);
 
-  for (const file of files) {
-    const moduleName = moduleNameForRelPath(file.relPath, srcRooted);
-
-    let summary = modules.get(moduleName);
-    if (!summary) {
-      summary = { name: moduleName, fileCount: 0, languages: [], sampleSymbols: [] };
-      modules.set(moduleName, summary);
-    }
-
-    summary.fileCount += 1;
-    if (!summary.languages.includes(file.language)) {
-      summary.languages.push(file.language);
-    }
-
-    for (const sym of file.symbols) {
-      if (summary.sampleSymbols.length >= SAMPLE_SYMBOLS_PER_MODULE) break;
-      summary.sampleSymbols.push({ name: sym.name, kind: sym.kind, file: file.relPath });
-    }
-  }
-
-  return [...modules.values()].sort((a, b) => b.fileCount - a.fileCount || a.name.localeCompare(b.name));
-}
-
-/** Groups already-parsed files by module — used by convention inference (Milestone 5), which needs full ParsedFile data per module. */
-export function groupFilesByModule(files: ParsedFile[]): Map<string, ParsedFile[]> {
-  const srcRooted = hasSrcRoot(files);
-  const byModule = new Map<string, ParsedFile[]>();
-
-  for (const file of files) {
-    const moduleName = moduleNameForRelPath(file.relPath, srcRooted);
-    const bucket = byModule.get(moduleName);
-    if (bucket) bucket.push(file);
-    else byModule.set(moduleName, [file]);
+  for (const override of overrides) {
+    const id = matchOverride(dirParts, override);
+    if (id) return id;
   }
 
-  return byModule;
+  if (dirParts.length === 0) return ROOT_MODULE;
+  if (CONTAINER_DIRS.has(dirParts[0]) && dirParts.length >= 2) return `${dirParts[0]}/${dirParts[1]}`;
+  return dirParts[0];
+}
+
+/** Display label for a module id: `src/api/`, or `(root)`. */
+export function moduleLabel(moduleId: string): string {
+  return moduleId === ROOT_MODULE ? '(root)' : `${moduleId}/`;
+}
+
+/** Filesystem-safe slug used for per-module artifact paths (`docs/modules/{module}.md`). */
+export function moduleSlug(moduleId: string): string {
+  return moduleId === ROOT_MODULE ? 'root' : moduleId.replace(/[\\/]+/g, '-');
+}
+
+/** Minimal glob for artifact `modules:` filters — same segment syntax as overrides, whole-id match. */
+export function moduleMatches(moduleId: string, pattern: string): boolean {
+  const idParts = moduleId === ROOT_MODULE ? ['.'] : moduleId.split('/');
+  const patternParts = pattern.replace(/\/+$/, '').split('/');
+  if (patternParts[patternParts.length - 1] === '**') {
+    // `src/**` = `src` itself or anything below it.
+    if (patternParts.length === 1) return true;
+    return matchOverride(idParts, { path: patternParts.slice(0, -1).join('/') }) !== null;
+  }
+  if (patternParts.length !== idParts.length) return false;
+  return matchOverride(idParts, { path: pattern }) !== null;
 }
