@@ -22,6 +22,11 @@ export interface AgentTool {
   evidence: string[];
   /** Where the tool reads custom slash commands, if it uses plain markdown for them (gets `/update-docs`). */
   commandFile?: string;
+  /**
+   * Written once at the top of the command file. Tools read a command's description from
+   * frontmatter (or its first line), so CtxKeep's usual maintenance comment can't go first.
+   */
+  commandHeader?: string;
 }
 
 export const POINTER_TOOLS: AgentTool[] = [
@@ -32,6 +37,11 @@ export const POINTER_TOOLS: AgentTool[] = [
     importLine: (target) => `@${target}`, // Claude Code memory imports: `@path`
     evidence: ['CLAUDE.md', '.claude'],
     commandFile: '.claude/commands/update-docs.md', // Claude Code project slash command: /update-docs
+    commandHeader: [
+      '---',
+      'description: Fix docs that no longer match the code (runs ctxkeep sync and check, then edits what they report)',
+      '---',
+    ].join('\n'),
   },
   {
     id: 'gemini',

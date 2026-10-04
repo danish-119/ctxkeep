@@ -79,7 +79,7 @@ TypeScript · 14 files
 - …and 24 more exported symbols
 <!-- ctxkeep:end:module:src/analysis -->
 
-<!-- ctxkeep:start:module:src/artifacts sha=5cbdaf3c4694 -->
+<!-- ctxkeep:start:module:src/artifacts sha=17964c9f837f -->
 ## `src/artifacts/`
 
 TypeScript · 3 files
@@ -93,6 +93,7 @@ TypeScript · 3 files
 - `ArtifactResult` interface — `src/artifacts/plan.ts` · imported by 2 files
 - `listArtifactPaths` function — `src/artifacts/plan.ts` · imported by 2 files
 - `SECTIONS` variable — `src/artifacts/sections.ts` · imported by 2 files
+- `POINTER_TOOLS` variable — `src/artifacts/agents.ts` · imported by 1 file
 - `NATIVE_AGENTS_MD_TOOLS` variable — `src/artifacts/agents.ts` · imported by 1 file
 - `POINTER_TOOL_IDS` variable — `src/artifacts/agents.ts` · imported by 1 file
 - `toolForArtifact` function — `src/artifacts/agents.ts` · imported by 1 file
@@ -104,7 +105,6 @@ TypeScript · 3 files
 - `parseRegionId` function — `src/artifacts/sections.ts` · imported by 1 file
 - `regionId` function — `src/artifacts/sections.ts` · imported by 1 file
 - `AgentTool` interface — `src/artifacts/agents.ts`
-- `POINTER_TOOLS` variable — `src/artifacts/agents.ts`
 - `DEFAULT_ARTIFACTS` variable — `src/artifacts/plan.ts`
 - `resolveAgentTools` function — `src/artifacts/plan.ts`
 - `ArtifactPlan` interface — `src/artifacts/plan.ts`

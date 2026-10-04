@@ -216,5 +216,7 @@ describe('ctxkeep check (CLI)', () => {
     runPipeline({ rootDir: local, mode: 'analyze' });
     expect(read(local, 'AGENTS.md')).toContain('run `npx ctxkeep sync`');
     expect(read(local, '.claude/commands/update-docs.md')).toContain('Run `npx ctxkeep check --json`');
+    // Claude Code reads a command's description from frontmatter at the very top of the file.
+    expect(read(local, '.claude/commands/update-docs.md').startsWith('---\ndescription: Fix docs that no longer match the code')).toBe(true);
   });
 });
