@@ -1,0 +1,14 @@
+# Convention review decisions, written by `ctxkeep review conventions`. Commit this file:
+# confirmed conventions are written into AGENTS.md, rejected ones are never proposed again.
+confirmed:
+  - .:test-location:dir:test
+  - .:test-naming:dot-spec
+  - src/analysis:export-style:named
+  - src/artifacts:export-style:named
+  - src/cli:export-style:named
+  - src/compiler:export-style:named
+  - src/config:export-style:named
+  - src/drift:export-style:named
+  - src/graph:export-style:named
+rejected:
+  - src/adapters:export-style:named

@@ -1,0 +1,53 @@
+# CtxKeep configuration. Commit this file; .ctxkeep/graph.sqlite is a regenerable cache.
+version: 2
+
+# AGENTS.md is the single source of truth for every coding agent. It is read natively by
+# Codex, Cursor, GitHub Copilot, Windsurf, Zed, Cline, Jules, Amp, and others.
+# Tools that don't read it get a one-line pointer file that imports it:
+#   claude -> CLAUDE.md (@AGENTS.md)     gemini -> GEMINI.md (@./AGENTS.md)
+# Detected from this repo: []. Remove this line to re-detect on every run.
+agents: [claude]           # maintained with Claude Code: CLAUDE.md pointer + /update-docs
+
+# Documentation CtxKeep keeps in sync with the code. Each artifact is a path plus an
+# ordered list of sections; only the regions between ctxkeep markers are ever rewritten.
+# Available sections:
+#   overview, commands, layout, conventions, agent-workflow, agents-import,
+#   update-docs-command, architecture, key-files, key-abstractions, module, module-summary,
+#   module-api, module-files
+# Leave out `sections` to have CtxKeep fill ONLY the markers you place yourself, e.g.
+#   <!-- ctxkeep:start:key-abstractions -->
+#   <!-- ctxkeep:end:key-abstractions -->
+artifacts:
+  - path: AGENTS.md          # canonical, always-loaded agent context
+    sections: [overview, commands, layout, conventions, agent-workflow]
+  - path: ARCHITECTURE.md    # module dependency graph + key files
+    title: Architecture
+    sections: [architecture, key-files]
+  - path: .ai/manifest.md    # on-demand index of every module's public API
+    title: Module index
+    sections: [module]
+  # One design doc per module:
+  # - path: docs/modules/{module}.md
+  #   modules: ["src/*"]
+  #   sections: [module-summary, module-api, module-files]
+  # Nested AGENTS.md per module (scoped context for Codex, Cursor, Copilot, Cline, ...):
+  # - path: "{module_dir}/AGENTS.md"
+  #   modules: ["src/*"]
+  #   sections: [module-summary, module-api]
+
+# Module boundaries are inferred from folders (src/<name>, packages/<name>, lib/<name>, ...).
+# Override them where that's wrong; the first matching entry wins.
+modules: []
+#  - path: src/features/*     # one module per feature folder
+#  - path: src/legacy/**      # everything under src/legacy is one module
+
+# Extra paths to exclude, gitignore syntax (.gitignore is already honoured).
+ignore: []
+
+# `ctxkeep check` also verifies the docs that describe CtxKeep's own code. Not checked:
+# docs/configuration.md (a manual full of example paths from other repos) and DECISIONS.md /
+# the original plan and spec (historical records that mention files which no longer exist).
+drift:
+  files:
+    - docs/how-it-works.md
+    - docs/upgrading-to-v0.2.md
