@@ -1,7 +1,7 @@
 {
   "name": "ctxkeep",
-  "version": "0.1.0",
-  "description": "The AI Context Operating System — keeps CLAUDE.md and AGENTS.md in sync with a living codebase.",
+  "version": "0.2.0",
+  "description": "Keeps AGENTS.md, ARCHITECTURE.md, and other project docs in sync with the code: generated from tree-sitter analysis, patched incrementally, never touching human-written text.",
   "license": "MIT",
   "type": "commonjs",
   "engines": {
@@ -21,7 +21,9 @@
     "analyze": "tsx src/cli/index.ts analyze",
     "sync": "tsx src/cli/index.ts sync",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm run clean && npm run build",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "better-sqlite3": "12.9.0",
@@ -44,5 +46,23 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "agents.md",
+    "claude.md",
+    "ai",
+    "coding-agents",
+    "documentation",
+    "architecture",
+    "context",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danish-119/ctxkeep.git"
+  },
+  "homepage": "https://github.com/danish-119/ctxkeep#readme",
+  "bugs": {
+    "url": "https://github.com/danish-119/ctxkeep/issues"
   }
 }
