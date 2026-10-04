@@ -1,85 +1,90 @@
 import type Database from 'better-sqlite3';
-import type { DetectedConvention } from '../analysis/conventions';
+import { conventionId, type DetectedConvention } from '../analysis/conventions';
 
 export type ConventionStatus = 'pending' | 'confirmed' | 'rejected';
 
 export interface ConventionRow {
   id: string;
   moduleId: string;
+  patternType: string;
+  value: string;
   statement: string;
-  confidence: number;
+  matched: number;
+  sampleSize: number;
   status: ConventionStatus;
+  /** Detected in the most recent scan. A confirmed-but-inactive row no longer holds and is not emitted. */
+  active: boolean;
   evidenceFilePaths: string[];
 }
 
-/** One convention slot per (module, pattern type) — stable across re-runs regardless of how the statement/confidence text drifts. */
-export function conventionId(moduleId: string, patternType: string): string {
-  return `${moduleId}:${patternType}`;
+interface RawRow extends Omit<ConventionRow, 'active' | 'evidenceFilePaths'> {
+  active: number;
+  evidence: string;
 }
 
-interface ConventionRowRaw {
-  id: string;
-  moduleId: string;
-  statement: string;
-  confidence: number;
-  status: ConventionStatus;
-  evidenceFilePathsJson: string;
-}
+const SELECT = `SELECT id, module_id as moduleId, pattern_type as patternType, value, statement, matched,
+  sample_size as sampleSize, status, active, evidence_file_paths as evidence FROM conventions`;
 
-function fromRaw(row: ConventionRowRaw): ConventionRow {
-  return { ...row, evidenceFilePaths: JSON.parse(row.evidenceFilePathsJson) };
+function fromRaw(row: RawRow): ConventionRow {
+  return { ...row, active: row.active === 1, evidenceFilePaths: JSON.parse(row.evidence) };
 }
 
 /**
- * Upserts detected conventions. Deliberately does NOT reset `status` on an
- * existing row — a human's confirm/reject decision must survive later
- * re-analysis even if the underlying stats shift slightly, which is what
- * makes "rejected conventions don't resurface" (build spec §5 demo
- * criterion) actually hold across repo changes, not just within one run.
+ * Replaces the detected set: every row is marked inactive, then each current
+ * detection is upserted as active. `status` is never touched by detection —
+ * a human's confirm/reject survives every re-scan. A convention whose module
+ * disappears, or whose pattern stops holding, simply goes inactive (and is
+ * dropped from artifacts) instead of being orphaned or emitted stale.
  */
-export function upsertConventions(db: Database.Database, conventions: DetectedConvention[]): void {
-  const stmt = db.prepare(`
-    INSERT INTO conventions (id, module_id, statement, confidence, status, evidence_file_paths)
-    VALUES (@id, @moduleId, @statement, @confidence, 'pending', @evidenceFilePathsJson)
+export function syncConventions(db: Database.Database, detected: DetectedConvention[]): void {
+  const upsert = db.prepare(`
+    INSERT INTO conventions (id, module_id, pattern_type, value, statement, matched, sample_size, status, active, evidence_file_paths)
+    VALUES (@id, @moduleId, @patternType, @value, @statement, @matched, @sampleSize, 'pending', 1, @evidence)
     ON CONFLICT(id) DO UPDATE SET
-      statement = excluded.statement,
-      confidence = excluded.confidence,
-      evidence_file_paths = excluded.evidence_file_paths
+      statement = excluded.statement, matched = excluded.matched, sample_size = excluded.sample_size,
+      active = 1, evidence_file_paths = excluded.evidence_file_paths
   `);
-
-  const run = db.transaction((items: DetectedConvention[]) => {
-    for (const c of items) {
-      stmt.run({
-        id: conventionId(c.moduleId, c.patternType),
+  db.transaction(() => {
+    db.prepare('UPDATE conventions SET active = 0').run();
+    for (const c of detected) {
+      upsert.run({
+        id: conventionId(c),
         moduleId: c.moduleId,
+        patternType: c.patternType,
+        value: c.value,
         statement: c.statement,
-        confidence: c.confidence,
-        evidenceFilePathsJson: JSON.stringify(c.evidenceFilePaths),
+        matched: c.matched,
+        sampleSize: c.sampleSize,
+        evidence: JSON.stringify(c.evidenceFilePaths),
       });
     }
-  });
-
-  run(conventions);
+  })();
 }
 
+/** Ranked queue: highest agreement first, then the widest-reaching evidence. */
 export function listPendingConventions(db: Database.Database, limit: number): ConventionRow[] {
-  const rows = db
-    .prepare(
-      `SELECT id, module_id as moduleId, statement, confidence, status, evidence_file_paths as evidenceFilePathsJson
-       FROM conventions WHERE status = 'pending' ORDER BY confidence DESC, id ASC LIMIT ?`,
-    )
-    .all(limit) as ConventionRowRaw[];
-  return rows.map(fromRaw);
+  return (
+    db
+      .prepare(
+        `${SELECT} WHERE status = 'pending' AND active = 1
+         ORDER BY CAST(matched AS REAL) / MAX(sample_size, 1) DESC, sample_size DESC, id ASC LIMIT ?`,
+      )
+      .all(limit) as RawRow[]
+  ).map(fromRaw);
 }
 
-export function listConfirmedConventions(db: Database.Database): ConventionRow[] {
-  const rows = db
-    .prepare(
-      `SELECT id, module_id as moduleId, statement, confidence, status, evidence_file_paths as evidenceFilePathsJson
-       FROM conventions WHERE status = 'confirmed' ORDER BY confidence DESC, id ASC`,
-    )
-    .all() as ConventionRowRaw[];
-  return rows.map(fromRaw);
+export function countPendingConventions(db: Database.Database): number {
+  return (db.prepare("SELECT COUNT(*) as n FROM conventions WHERE status = 'pending' AND active = 1").get() as { n: number }).n;
+}
+
+/** Confirmed AND still true in the current code — the only conventions artifacts may state. */
+export function listEmittableConventions(db: Database.Database): ConventionRow[] {
+  return (db.prepare(`${SELECT} WHERE status = 'confirmed' AND active = 1 ORDER BY module_id, pattern_type, id`).all() as RawRow[]).map(fromRaw);
+}
+
+/** Confirmed by a human but no longer detected — surfaced as a warning so the drift is visible. */
+export function listLapsedConventions(db: Database.Database): ConventionRow[] {
+  return (db.prepare(`${SELECT} WHERE status = 'confirmed' AND active = 0 ORDER BY id`).all() as RawRow[]).map(fromRaw);
 }
 
 export function setConventionStatus(db: Database.Database, id: string, status: 'confirmed' | 'rejected'): void {

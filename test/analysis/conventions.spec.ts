@@ -1,112 +1,82 @@
 import { describe, expect, it } from 'vitest';
-import { detectConventionsForModule } from '../../src/analysis/conventions';
-import type { ParsedFile, ParsedSymbol } from '../../src/analysis/types';
+import { classifyFileName, detectConventions } from '../../src/analysis/conventions';
+import { buildModel } from '../../src/analysis/model';
+import { refreshGraph } from '../../src/analysis/refresh';
+import { openMemoryGraph } from '../../src/graph/db';
+import { tempDir, writeFiles } from '../helpers';
 
-let counter = 0;
-
-function sym(partial: Partial<ParsedSymbol> & Pick<ParsedSymbol, 'kind' | 'name'>): ParsedSymbol {
-  counter += 1;
-  return {
-    line: 1,
-    startIndex: counter * 100,
-    endIndex: counter * 100 + 10,
-    exported: false,
-    signatureHash: `hash-${counter}`,
-    usesTryCatch: false,
-    ...partial,
-  };
+function detect(files: Record<string, string>) {
+  const root = tempDir('ctxkeep-conv-');
+  writeFiles(root, files);
+  const db = openMemoryGraph();
+  refreshGraph(db, root);
+  return detectConventions(buildModel(db, root));
 }
 
-function file(relPath: string, symbols: ParsedSymbol[]): ParsedFile {
-  return { relPath, language: 'typescript', symbols };
-}
+const named = (n: string) => `export function ${n}() {}\n`;
 
-describe('detectConventionsForModule — export style', () => {
-  it('detects a dominant named-export style with correct confidence', () => {
-    const files = [
-      file('src/mod/a.ts', [sym({ kind: 'export', name: 'foo', exported: true })]),
-      file('src/mod/b.ts', [sym({ kind: 'export', name: 'bar', exported: true })]),
-      file('src/mod/c.ts', [sym({ kind: 'export', name: 'default', exported: true })]), // the odd one out
-    ];
-
-    const [convention] = detectConventionsForModule('mod', files).filter((c) => c.patternType === 'export-style');
-    expect(convention.confidence).toBeCloseTo(2 / 3);
-    expect(convention.statement).toContain('named exports');
-    expect(convention.evidenceFilePaths.sort()).toEqual(['src/mod/a.ts', 'src/mod/b.ts']);
+describe('convention inference is strict: well-sampled and near-unanimous, or nothing', () => {
+  it('proposes named-exports-only when every file agrees, with a count-free statement', () => {
+    const found = detect({ 'src/api/a.ts': named('a'), 'src/api/b.ts': named('b'), 'src/api/c.ts': named('c') });
+    const c = found.find((x) => x.patternType === 'export-style')!;
+    expect(c).toMatchObject({ moduleId: 'src/api', value: 'named', matched: 3, sampleSize: 3 });
+    expect(c.statement).toBe('Files in `src/api/` use named exports only (no default exports).');
   });
 
-  it('does not emit an export-style convention when fewer than 2 files have exports', () => {
-    const files = [file('src/mod/a.ts', [sym({ kind: 'export', name: 'foo', exported: true })])];
-    expect(detectConventionsForModule('mod', files).some((c) => c.patternType === 'export-style')).toBe(false);
+  it('proposes nothing below 80% agreement (v0.1 proposed 2-of-3 "conventions")', () => {
+    const found = detect({
+      'src/api/a.ts': named('a'),
+      'src/api/b.ts': named('b'),
+      'src/api/c.ts': 'export default function c() {}\n',
+    });
+    expect(found.some((x) => x.patternType === 'export-style')).toBe(false);
   });
 
-  it('ignores files with no exported symbols entirely', () => {
-    const files = [
-      file('src/mod/a.ts', [sym({ kind: 'function', name: 'internalOnly', exported: false })]),
-      file('src/mod/b.ts', [sym({ kind: 'export', name: 'foo', exported: true })]),
-      file('src/mod/c.ts', [sym({ kind: 'export', name: 'bar', exported: true })]),
-    ];
-    const [convention] = detectConventionsForModule('mod', files).filter((c) => c.patternType === 'export-style');
-    expect(convention.confidence).toBe(1); // both files WITH exports agree; the non-exporting file isn't counted
-  });
-});
-
-describe('detectConventionsForModule — error handling', () => {
-  it('detects a dominant try/catch-using pattern', () => {
-    const files = [
-      file('src/mod/a.ts', [sym({ kind: 'function', name: 'f1', usesTryCatch: true })]),
-      file('src/mod/b.ts', [sym({ kind: 'function', name: 'f2', usesTryCatch: true })]),
-      file('src/mod/c.ts', [sym({ kind: 'function', name: 'f3', usesTryCatch: false })]),
-    ];
-    const [convention] = detectConventionsForModule('mod', files).filter((c) => c.patternType === 'error-handling');
-    expect(convention.confidence).toBeCloseTo(2 / 3);
-    expect(convention.statement).toContain('use try/catch');
+  it('proposes nothing from fewer than 3 samples', () => {
+    expect(detect({ 'src/api/a.ts': named('a'), 'src/api/b.ts': named('b') })).toEqual([]);
   });
 
-  it('detects a dominant no-try/catch pattern when that is the majority', () => {
-    const files = [
-      file('src/mod/a.ts', [sym({ kind: 'function', name: 'f1', usesTryCatch: false })]),
-      file('src/mod/b.ts', [sym({ kind: 'function', name: 'f2', usesTryCatch: false })]),
-    ];
-    const [convention] = detectConventionsForModule('mod', files).filter((c) => c.patternType === 'error-handling');
-    expect(convention.confidence).toBe(1);
-    expect(convention.statement).toContain('no detected try/catch');
+  it('never proposes "absence" patterns such as missing try/catch', () => {
+    const found = detect({ 'src/x/a.ts': named('a'), 'src/x/b.ts': named('b'), 'src/x/c.ts': named('c') });
+    expect(found.map((x) => x.patternType)).not.toContain('error-handling');
   });
 
-  it('ignores non-function symbols (classes, exports) when counting', () => {
-    const files = [
-      file('src/mod/a.ts', [sym({ kind: 'class', name: 'Thing' }), sym({ kind: 'export', name: 'x', exported: true })]),
-    ];
-    expect(detectConventionsForModule('mod', files).some((c) => c.patternType === 'error-handling')).toBe(false);
-  });
-});
+  it('detects file naming only from multi-word names (single words fit every style)', () => {
+    expect(classifyFileName('index')).toBeNull();
+    expect(classifyFileName('User')).toBeNull();
+    expect(classifyFileName('format-price')).toBe('kebab-case');
+    expect(classifyFileName('ProductCard')).toBe('PascalCase');
+    expect(classifyFileName('tool_registry')).toBe('snake_case');
+    expect(classifyFileName('apiClient')).toBe('camelCase');
 
-describe('detectConventionsForModule — file naming', () => {
-  it('detects dominant kebab-case naming, ratio over ALL files including ambiguous ones', () => {
-    const files = [
-      file('src/mod/my-file-one.ts', []),
-      file('src/mod/my-file-two.ts', []),
-      file('src/mod/index.ts', []), // ambiguous single word — still counts in the denominator
-    ];
-    const [convention] = detectConventionsForModule('mod', files).filter((c) => c.patternType === 'file-naming');
-    expect(convention.confidence).toBeCloseTo(2 / 3);
-    expect(convention.statement).toContain('kebab-case');
+    const found = detect({
+      'src/ui/ProductCard.tsx': named('A'),
+      'src/ui/CartButton.tsx': named('B'),
+      'src/ui/NavBar.tsx': named('C'),
+      'src/ui/index.ts': named('D'),
+    });
+    expect(found.find((x) => x.patternType === 'file-naming')).toMatchObject({ value: 'PascalCase', matched: 3, sampleSize: 3 });
   });
 
-  it('detects dominant camelCase naming', () => {
-    const files = [file('src/mod/myFileOne.ts', []), file('src/mod/myFileTwo.ts', []), file('src/mod/otherThing.ts', [])];
-    const [convention] = detectConventionsForModule('mod', files).filter((c) => c.patternType === 'file-naming');
-    expect(convention.confidence).toBe(1);
-    expect(convention.statement).toContain('camelCase');
+  it('detects where tests live and how they are named, ignoring fixtures', () => {
+    const found = detect({
+      'src/a.ts': named('a'),
+      'tests/test_a.py': 'def test_a():\n    pass\n',
+      'tests/test_b.py': 'def test_b():\n    pass\n',
+      'tests/test_c.py': 'def test_c():\n    pass\n',
+      'tests/fixtures/sample/x_test.py': 'X = 1\n',
+    });
+    expect(found.find((x) => x.patternType === 'test-location')).toMatchObject({ value: 'dir:tests', matched: 3 });
+    expect(found.find((x) => x.patternType === 'test-naming')).toMatchObject({ value: 'test-prefix', matched: 3 });
   });
 
-  it('emits nothing when every file name is ambiguous (no decidable style)', () => {
-    const files = [file('src/mod/index.ts', []), file('src/mod/types.ts', [])];
-    expect(detectConventionsForModule('mod', files).some((c) => c.patternType === 'file-naming')).toBe(false);
-  });
-
-  it('does not emit a file-naming convention for a single-file module', () => {
-    const files = [file('src/mod/my-file.ts', [])];
-    expect(detectConventionsForModule('mod', files).some((c) => c.patternType === 'file-naming')).toBe(false);
+  it('detects colocated tests', () => {
+    const found = detect({
+      'src/a.ts': named('a'),
+      'src/a.test.ts': 'test("x", () => {});\n',
+      'src/b.test.ts': 'test("x", () => {});\n',
+      'src/c.test.ts': 'test("x", () => {});\n',
+    });
+    expect(found.find((x) => x.patternType === 'test-location')?.statement).toBe('Tests are colocated with the source files they cover.');
   });
 });
