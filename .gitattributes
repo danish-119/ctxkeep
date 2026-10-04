@@ -1,8 +1,13 @@
-# CtxKeep-generated, committed artifacts must stay LF regardless of a
-# contributor's core.autocrlf setting — patchRegion (src/compiler/patchRegion.ts)
-# always reads/writes LF, so a CRLF checkout would make untouched regions look
-# "changed" the moment any other region gets patched. See DECISIONS.md.
-CLAUDE.md text eol=lf
+# CtxKeep preserves each artifact's own line endings (src/compiler/apply.ts),
+# so CRLF checkouts work. LF is still pinned here so the generated files diff
+# identically for every contributor, whatever their core.autocrlf setting.
 AGENTS.md text eol=lf
+CLAUDE.md text eol=lf
+GEMINI.md text eol=lf
+ARCHITECTURE.md text eol=lf
 .ai/manifest.md text eol=lf
 .ctxkeep/config.yaml text eol=lf
+
+# Fixture repos and their golden snapshots are compared byte for byte by
+# test/goldenFiles.spec.ts. A CRLF checkout would make every golden test fail.
+test/fixtures/** text eol=lf
