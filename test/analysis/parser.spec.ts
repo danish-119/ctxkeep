@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFile } from '../../src/analysis/parser';
+import { parseMany } from '../../src/analysis/parsePool';
+import { tempDir, writeFiles } from '../helpers';
 import type { ParsedFile } from '../../src/analysis/types';
 
 function parse(source: string, filename = 'fixture.ts'): ParsedFile {
@@ -159,6 +161,24 @@ describe('Dart (line-based extractor)', () => {
     ]);
     expect(f.imports.map((i) => i.specifier)).toEqual(['package:flutter/material.dart', '../theme.dart', 'button.g.dart']);
     expect(f.docSummary).toBe('Buttons shared across screens.');
+  });
+});
+
+describe('parseMany (parallel pool)', () => {
+  it('returns the same results, in input order, whether it runs threads or falls back to serial', () => {
+    const jobs = Array.from({ length: 30 }, (_, i) => ({
+      relPath: `src/m${i}.ts`,
+      source: `import { x } from './m${(i + 1) % 30}';\nexport function f${i}() {}\nexport const C${i} = ${i};\n`,
+    }));
+    const root = tempDir('ctxkeep-pool-');
+    writeFiles(root, Object.fromEntries(jobs.map((j) => [j.relPath, j.source])));
+    const serial = jobs.map((j) => ({ relPath: j.relPath, parsed: parseFile(j.relPath, j.source) }));
+    process.env.CTXKEEP_PARSE_THREADS = '3';
+    try {
+      expect(parseMany(root, jobs)).toEqual(serial);
+    } finally {
+      delete process.env.CTXKEEP_PARSE_THREADS;
+    }
   });
 });
 

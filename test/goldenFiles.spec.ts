@@ -51,6 +51,18 @@ describe.each(FIXTURES)('golden: %s', (fixture) => {
     expect(actual).toBe(expected);
   });
 
+  it('parallel parsing produces exactly the same artifacts', () => {
+    const parallelDir = copyFixture(fixture);
+    expect(runCli(['init', parallelDir]).status).toBe(0);
+    expect(runCli(['analyze', parallelDir], undefined, { CTXKEEP_PARSE_THREADS: '3' }).status).toBe(0);
+    for (const [artifact] of ARTIFACTS) {
+      const a = path.join(dir, artifact);
+      const b = path.join(parallelDir, artifact);
+      expect(fs.existsSync(b)).toBe(fs.existsSync(a));
+      if (fs.existsSync(a)) expect(read(parallelDir, artifact)).toBe(read(dir, artifact));
+    }
+  }, 60_000);
+
   it('a second analyze is a byte-for-byte no-op', () => {
     const existing = ARTIFACTS.map(([a]) => a).filter((a) => fs.existsSync(path.join(dir, a)));
     const before = existing.map((a) => read(dir, a));

@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import type { Language } from '../analysis/languages';
 import type { ParsedFile, ParsedImport, SymbolKind } from '../analysis/types';
 
-export type ParseStatus = 'parsed' | 'file-only' | 'too-large' | 'error';
+export type ParseStatus = 'parsed' | 'file-only' | 'too-large' | 'error' | 'generated';
 
 export interface FileRecord {
   path: string;

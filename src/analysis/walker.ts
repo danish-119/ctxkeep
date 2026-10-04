@@ -25,6 +25,19 @@ export const DEFAULT_IGNORES = [
   '.turbo/',
   '.cache/',
   '.parcel-cache/',
+  '.vite/',
+  '.angular/',
+  '.astro/',
+  '.output/',
+  '.vercel/',
+  '.netlify/',
+  '.wrangler/',
+  '.docusaurus/',
+  '.serverless/',
+  '.terraform/',
+  '.yarn/',
+  '.pnpm-store/',
+  'storybook-static/',
   '.expo/',
   'vendor/',
   'venv/',
@@ -51,6 +64,22 @@ export interface ListFilesOptions {
   include?: (relPath: string) => boolean;
 }
 
+/** Repos git refused to list ("dubious ownership"), so callers can tell the user instead of degrading silently. */
+const gitRefusals = new Set<string>();
+
+/**
+ * A user-facing warning if git refused to read this repository. The
+ * filesystem fallback still works, but only the root .gitignore is honoured.
+ */
+export function gitFallbackWarning(rootDir: string): string | null {
+  if (!gitRefusals.has(path.resolve(rootDir))) return null;
+  return (
+    'git refused to read this repository ("dubious ownership": the folder belongs to another Windows/OS user), so CtxKeep ' +
+    'walked the filesystem instead and honoured only the root .gitignore. To fix: ' +
+    `git config --global --add safe.directory "${path.resolve(rootDir).split(path.sep).join('/')}"`
+  );
+}
+
 function buildIgnore(extra: string[]): Ignore {
   return ignoreFactory().add(DEFAULT_IGNORES).add(extra);
 }
@@ -68,12 +97,14 @@ function listViaGit(rootDir: string): string[] | null {
     const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
       cwd: rootDir,
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 256 * 1024 * 1024,
     });
     return out.split('\0').filter(Boolean);
-  } catch {
-    return null; // not a git repo, or git not installed
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '');
+    if (/dubious ownership/.test(stderr)) gitRefusals.add(path.resolve(rootDir));
+    return null; // not a git repo, or git not installed, or git refused to read it
   }
 }
 
