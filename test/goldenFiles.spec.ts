@@ -22,6 +22,7 @@ const ARTIFACTS: [string, string][] = [
   ['AGENTS.md', 'AGENTS.md'],
   ['CLAUDE.md', 'CLAUDE.md'],
   ['GEMINI.md', 'GEMINI.md'],
+  ['.claude/commands/update-docs.md', 'claude-update-docs.md'],
   ['ARCHITECTURE.md', 'ARCHITECTURE.md'],
   ['.ai/manifest.md', 'manifest.md'],
 ];

@@ -32,3 +32,12 @@ _Sections between `ctxkeep` markers are generated from the code by CtxKeep and r
 
 _None confirmed yet. Run `ctxkeep review conventions` to confirm detected patterns._
 <!-- ctxkeep:end:conventions -->
+
+<!-- ctxkeep:start:agent-workflow sha=4f3114e14a77 -->
+## Keeping these docs true
+
+- After changing code, run `ctxkeep sync` (refreshes the generated sections), then `ctxkeep check`.
+- `ctxkeep check` lists hand-written statements that no longer match the code — commands, paths, links, or code names that don't exist. Fix that text to match the code. `ctxkeep check --json` gives the same list as file/line/suggestion.
+- Never edit between `ctxkeep:start` / `ctxkeep:end` markers; those sections are regenerated.
+- All commands: `ctxkeep --help`.
+<!-- ctxkeep:end:agent-workflow -->

@@ -23,7 +23,7 @@ import { parseRegionId, regionId, SECTIONS, type RenderContext } from './section
  *   count-bearing detail that would bloat an always-loaded file.
  */
 export const DEFAULT_ARTIFACTS: ArtifactConfig[] = [
-  { path: 'AGENTS.md', sections: ['overview', 'commands', 'layout', 'conventions'], enabled: true },
+  { path: 'AGENTS.md', sections: ['overview', 'commands', 'layout', 'conventions', 'agent-workflow'], enabled: true },
   { path: 'ARCHITECTURE.md', title: 'Architecture', sections: ['architecture', 'key-files'], enabled: true },
   { path: '.ai/manifest.md', title: 'Module index', sections: ['module'], enabled: true },
 ];
@@ -66,12 +66,16 @@ export function resolveAgentTools(config: Config, rootDir: string): string[] {
 export function resolveArtifactConfigs(config: Config, rootDir: string): ArtifactConfig[] {
   let artifacts = [...(config.artifacts ?? DEFAULT_ARTIFACTS)];
 
-  // One pointer file per tool that can't read AGENTS.md itself, unless the config lists that file already.
+  // One pointer file per tool that can't read AGENTS.md itself, plus the tool's doc-fixing command where it has
+  // a command format — unless the config lists that file already.
   for (const id of resolveAgentTools(config, rootDir)) {
     const tool = toolById(id)!;
     if (!artifacts.some((a) => a.path === tool.file)) {
       const after = artifacts.findIndex((a) => a.path === 'AGENTS.md');
       artifacts.splice(after + 1, 0, { path: tool.file, sections: ['agents-import'], enabled: true });
+    }
+    if (tool.commandFile && !artifacts.some((a) => a.path === tool.commandFile)) {
+      artifacts.push({ path: tool.commandFile, sections: ['update-docs-command'], enabled: true });
     }
   }
   artifacts = artifacts.filter((a) => a.enabled !== false);

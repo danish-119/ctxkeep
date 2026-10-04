@@ -74,6 +74,17 @@ export interface ContextModel {
   resolvedImportCount: number;
   /** Module id for any path (including deleted ones), using exactly this run's rules. */
   moduleOf: (relPath: string) => string;
+  /** How to invoke CtxKeep here: `npx ctxkeep` when it's a project dependency, else `ctxkeep`. */
+  ctxkeepCommand: string;
+}
+
+function ctxkeepCommand(rootDir: string): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+    return pkg?.dependencies?.ctxkeep || pkg?.devDependencies?.ctxkeep ? 'npx ctxkeep' : 'ctxkeep';
+  } catch {
+    return 'ctxkeep';
+  }
 }
 
 function countBy<T>(items: T[], key: (t: T) => Language): [Language, number][] {
@@ -256,5 +267,6 @@ export function buildModel(
     testFileCount: files.length - sourceFiles.length,
     resolvedImportCount,
     moduleOf,
+    ctxkeepCommand: ctxkeepCommand(rootDir),
   };
 }

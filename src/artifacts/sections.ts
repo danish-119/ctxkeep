@@ -211,6 +211,41 @@ const agentsImport: SectionDef = {
   },
 };
 
+const agentWorkflow: SectionDef = {
+  name: 'agent-workflow',
+  scope: 'project',
+  summary: 'Tells every coding agent how to keep the docs true: run `ctxkeep sync`, then `ctxkeep check`, and fix what it reports.',
+  render({ model }) {
+    const ck = model.ctxkeepCommand;
+    return [
+      '## Keeping these docs true',
+      '',
+      `- After changing code, run \`${ck} sync\` (refreshes the generated sections), then \`${ck} check\`.`,
+      `- \`${ck} check\` lists hand-written statements that no longer match the code — commands, paths, links, or code names that don't exist. Fix that text to match the code. \`${ck} check --json\` gives the same list as file/line/suggestion.`,
+      '- Never edit between `ctxkeep:start` / `ctxkeep:end` markers; those sections are regenerated.',
+      `- All commands: \`${ck} --help\`.`,
+    ].join('\n');
+  },
+};
+
+const updateDocsCommand: SectionDef = {
+  name: 'update-docs-command',
+  scope: 'project',
+  summary: 'Body of an agent slash command (e.g. Claude Code `/update-docs`) that fixes doc drift.',
+  render({ model }) {
+    const ck = model.ctxkeepCommand;
+    return [
+      "Bring this project's documentation back in line with the code.",
+      '',
+      `1. Run \`${ck} sync\` to refresh the generated sections.`,
+      `2. Run \`${ck} check --json\` and read the \`drift\` list. Each entry has a file, a line, what is wrong, and sometimes a suggestion.`,
+      '3. For each entry, fix the hand-written text at that location so it matches the code. Use the suggestion when it is right; read the code when unsure. If a reference is intentionally hypothetical, add `<!-- ctxkeep-ignore -->` to that line instead.',
+      '4. Never edit between `ctxkeep:start` / `ctxkeep:end` markers.',
+      `5. Run \`${ck} check\` again until it reports nothing, then summarize what you changed.`,
+    ].join('\n');
+  },
+};
+
 function edgeList(edges: { moduleId: string; weight: number }[]): string {
   return edges.length ? edges.map((e) => `${inlineCode(moduleLabel(e.moduleId))} (${e.weight})`).join(', ') : '—';
 }
@@ -390,7 +425,7 @@ const moduleFiles: SectionDef = {
 };
 
 export const SECTIONS: ReadonlyMap<string, SectionDef> = new Map(
-  [overview, commands, layout, conventions, agentsImport, architecture, keyFiles, keyAbstractions, moduleCard, moduleSummary, moduleApiSection, moduleFiles].map(
+  [overview, commands, layout, conventions, agentWorkflow, agentsImport, updateDocsCommand, architecture, keyFiles, keyAbstractions, moduleCard, moduleSummary, moduleApiSection, moduleFiles].map(
     (s) => [s.name, s],
   ),
 );

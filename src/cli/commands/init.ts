@@ -49,7 +49,7 @@ ${sectionLines.join('\n')}
 #   <!-- ctxkeep:end:key-abstractions -->
 artifacts:
   - path: AGENTS.md          # canonical, always-loaded agent context
-    sections: [overview, commands, layout, conventions]
+    sections: [overview, commands, layout, conventions, agent-workflow]
   - path: ARCHITECTURE.md    # module dependency graph + key files
     title: Architecture
     sections: [architecture, key-files]

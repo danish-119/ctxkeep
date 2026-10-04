@@ -6,6 +6,7 @@ CLAUDE.md text eol=lf
 GEMINI.md text eol=lf
 ARCHITECTURE.md text eol=lf
 .ai/manifest.md text eol=lf
+.claude/commands/update-docs.md text eol=lf
 .ctxkeep/config.yaml text eol=lf
 
 # Fixture repos and their golden snapshots are compared byte for byte by

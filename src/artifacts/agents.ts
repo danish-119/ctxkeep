@@ -20,6 +20,8 @@ export interface AgentTool {
   importLine(target: string): string;
   /** Repo paths whose presence shows the project already uses this tool. */
   evidence: string[];
+  /** Where the tool reads custom slash commands, if it uses plain markdown for them (gets `/update-docs`). */
+  commandFile?: string;
 }
 
 export const POINTER_TOOLS: AgentTool[] = [
@@ -29,6 +31,7 @@ export const POINTER_TOOLS: AgentTool[] = [
     file: 'CLAUDE.md',
     importLine: (target) => `@${target}`, // Claude Code memory imports: `@path`
     evidence: ['CLAUDE.md', '.claude'],
+    commandFile: '.claude/commands/update-docs.md', // Claude Code project slash command: /update-docs
   },
   {
     id: 'gemini',
