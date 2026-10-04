@@ -1,0 +1,21 @@
+{
+  "name": "react-web-fixture",
+  "description": "Storefront web app.",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "prebuild": "node scripts/clean.js",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0",
+    "typescript": "^5.7.0"
+  }
+}

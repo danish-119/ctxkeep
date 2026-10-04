@@ -1,0 +1,9 @@
+name: shop_app
+description: Mobile shop.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

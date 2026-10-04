@@ -1,0 +1,15 @@
+[project]
+name = "support-agent"
+version = "0.1.0"
+dependencies = [
+  "fastapi>=0.110",
+  "anthropic>=0.40",
+  "torch==2.4.0",
+  "pydantic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+support-agent = "agent.cli:main"
