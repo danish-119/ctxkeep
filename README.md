@@ -21,12 +21,16 @@ CtxKeep takes the opposite approach:
 
 ## Install
 
-CtxKeep is a command-line tool that needs **Node.js 20 or newer**. It works in any repository, whatever language the project itself is written in.
-
 ```bash
-npx ctxkeep try                 # preview in any repo; writes nothing
-npm install --save-dev ctxkeep  # or: npm install -g ctxkeep
+npm i -g ctxkeep
 ```
+
+That's it: `ctxkeep` is now a command you can run in any repository, whatever language the project is written in. It needs **Node.js 20 or newer**.
+
+Other ways to run it:
+
+- **No install:** `npx ctxkeep try`
+- **Per project** (e.g. to pin the version for CI): `npm i -D ctxkeep`, then run `npx ctxkeep …`
 
 To run from source instead: `git clone https://github.com/danish-119/ctxkeep.git && cd ctxkeep && npm install && npm run build`, then `node dist/cli/index.js <command> /path/to/repo`, or run `npm link` to get a `ctxkeep` command.
 
