@@ -28,8 +28,10 @@ The `files` table records `size`, `mtime_ms`, `content_hash` (sha1), `parse_stat
 
 1. Lists files with `git ls-files -z --cached --others --exclude-standard`. That covers tracked and untracked files and honours every git ignore source. Outside git, it walks the filesystem and reads the root `.gitignore`. Built-in and configured ignores are applied in both cases.
 2. Skips a file without reading it if its size and mtime are unchanged and it was last modified more than 2 seconds before the previous scan started. Files modified inside that window are always re-hashed, the same "racy clean" rule git's index uses.
-3. Hashes the remaining files. Same hash: only the mtime is updated. New hash: the file is re-parsed, and its old symbols and imports are replaced.
-4. Deletes graph rows for paths that no longer exist. Symbols and imports cascade. A rename is a delete plus an add.
+3. Hashes the remaining files. Same hash: only the mtime is updated. New hash: the file is queued for parsing, unless its content shows it's generated or minified (a generator banner, or an average line over 300 characters in a file over 10 KB). Generated files are recorded but never parsed or shown in artifacts.
+4. Parses every queued file. For 100 or more files this runs on a worker-thread pool (`src/analysis/parsePool.ts`); the main thread waits on a shared counter and collects results synchronously, so the pipeline stays synchronous. On a 2,200-file monorepo that cut a full scan from ~28 s to ~7 s. Below the threshold, or if workers can't start, parsing is serial; the output is identical either way. `CTXKEEP_PARSE_THREADS` overrides the thread count, and `1` disables the pool.
+5. Writes everything in one transaction, replacing changed files' symbols and imports.
+6. Deletes graph rows for paths that no longer exist. Symbols and imports cascade. A rename is a delete plus an add.
 
 A `parser_version` stored in `meta` forces one full re-parse when extraction logic changes, so an upgrade never leaves symbols from an older parser behind. `analyze` always re-parses everything.
 
@@ -51,7 +53,14 @@ Parsers are cached per grammar. Input is fed through a read callback to get arou
 
 ## Modules
 
-`moduleIdForPath` in `src/analysis/modules.ts` is the single source of truth. A module id **is** its folder path (`src/api`, `test`, or `.` for the root). Container directories (`src`, `lib`, `packages`, …) split one level deeper. Config overrides match first. A module is a test module when every file in it is a test or fixture file. Test files are counted but never indexed.
+A module id **is** its folder path (`src/api`, `test`, or `.` for the root). Each run builds one resolver with `createModuleResolver` in `src/analysis/modules.ts`, and every caller (model, sync messages, `init`) uses it, so ids always agree. The rules, in order:
+
+1. Config overrides match first.
+2. Inference restarts inside nested projects, i.e. folders with their own manifest (`findProjectRoots` in `src/analysis/projects.ts`).
+3. Container directories (`src`, `lib`, `packages`, `features`, …) are descended through at any depth.
+4. `findDominantFolders` adjusts modules with 8 or more source files, based on the real file layout. Single-child folder chains are passed through, and a folder holding half or more of its project's source is split one level deeper, at most once.
+
+A module is a test module when every file in it is a test or fixture file. Test files are counted but never indexed.
 
 ## Sections and artifacts
 

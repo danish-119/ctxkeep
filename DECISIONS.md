@@ -345,3 +345,22 @@ Content hashing has none of these failure modes. It also works without git, and 
 Published to npm as `ctxkeep@0.2.0` on 2026-10-04.
 
 ---
+
+## 2026-10-04 — v0.2.1: fixes from running on 18 real projects
+
+`ctxkeep try` (read-only) was run on 18 of the maintainer's own projects: Next.js/React apps, Flutter, React Native/Expo, Express, Python AI agents, LangChain, a Python + Next.js full-stack app, a 2,200-file Tauri/Rust/TS monorepo, Java/Maven, Rust, and a Chrome extension. Each run was checked to have written nothing; all 18 were clean. Fixtures had missed these problems:
+
+| Found | Fix |
+|---|---|
+| A repo holding several apps (`web/` with its own package.json, `mobile/` with its own pubspec.yaml) collapsed each app into one module and showed **no stack or commands**, because manifests were read only at the root. | Nested projects: any folder with its own manifest is a project root. Inference restarts inside it, and its stack and commands are reported with their source and the `cd` they need. Test and fixture folders never count. |
+| Feature-first layouts (`lib/features/*`, `src/features/*`) were one module. | `features` is a container, and containers are descended through at any depth. |
+| A Python project's single top-level package (`app/` with `memory/`, `tools/`, `voice/`) was one module. JVM projects were one module (`src/main/java/com/acme/…`). | `findDominantFolders`: in modules with 8+ source files, single-child chains are passed through, and a folder holding half or more of its project's source is split one level deeper (once). Test folders and small modules are left alone, since restructuring them only lengthened labels (`android/` → `android/app/`). |
+| README-derived descriptions kept relative markdown links (`[FlexFit](../README.md)`), which break once copied into AGENTS.md. | Links and images are reduced to their text, in READMEs and doc comments (including `{@link X}`). |
+| Vite's `.vite/` cache and minified bundles committed under `public/` were parsed as source: noise in the docs, and most of the parse time. | More tool caches are ignored by default, and generated or minified files are detected by content (generator banner, or average line > 300 chars) and never parsed or shown. |
+| A 2,200-file monorepo took ~36 s for a full scan; ~95% of that was tree-sitter. | Parallel parsing on a worker-thread pool, kept synchronous for callers (Atomics.wait + receiveMessageOnPort), with a serial fallback and byte-identical output (verified). A full scan went from ~28 s to ~7 s. |
+| git refused one repo ("dubious ownership"), and CtxKeep silently fell back to a filesystem walk. | A warning now says what happened and gives the exact `git config --global --add safe.directory` fix. |
+| Long script lists buried dev/build/test under 25 lint variants. | Core commands (install, dev, start, build, test, lint, typecheck, check, format) come first, and the list is capped at 15. |
+
+**Rejected:** child-process parallelism, because workers proved to work with the pinned tree-sitter binding and are cheaper; and making the pipeline async for workers, which would have churned every API and test for no user-visible gain.
+
+---
