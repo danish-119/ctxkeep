@@ -1,60 +1,59 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { Command } from 'commander';
-import { openGraph } from '../../graph/db';
-import { rollbackArtifacts, type RollbackOutcome } from '../../compiler/rollback';
+import { loadConfig } from '../../config/io';
+import { listArtifactPaths, resolveArtifactConfigs } from '../../artifacts/plan';
+import { hasGitHead } from '../../analysis/git';
+import { planRollback, writeRollback } from '../../compiler/rollback';
+import { handleError, resolveTarget } from '../shared';
 
-function describe(outcome: RollbackOutcome): string {
-  switch (outcome.status) {
-    case 'restored':
-      return `restored to HEAD`;
-    case 'no_op':
-      return `already matched HEAD — untouched`;
-    case 'not_found_at_head':
-      return `skipped — ${outcome.artifactPath} doesn't exist at HEAD (nothing committed to roll back to)`;
-    case 'region_not_in_head':
-      return `skipped — region not present in the HEAD version of ${outcome.artifactPath}`;
-  }
-}
+export const ROLLBACK_NOTE =
+  'Note: this reverts the FILES to match HEAD. A subsequent `ctxkeep analyze`/`sync` recomputes from the code ' +
+  "and will reintroduce the same content if the underlying code hasn't changed.";
 
 export function registerRollbackCommand(program: Command): void {
   program
     .command('rollback')
     .description(
-      'Reverts every CtxKeep-owned region to its content as of the last git commit (HEAD). ' +
-        'Leaves human-owned content, and any region not tracked in artifact_bindings, untouched.',
+      'Restores every CtxKeep region in the configured artifacts to its content at git HEAD. ' +
+        'Text outside the markers is left alone; regions added since HEAD are kept.',
     )
     .argument('[path]', 'path to the repo', '.')
-    .action(async (targetPathArg: string) => {
-      const targetDir = path.resolve(targetPathArg);
+    .option('--dry-run', 'list what would be restored; write nothing')
+    .action((targetPathArg: string, options: { dryRun?: boolean }) => {
+      const targetDir = resolveTarget(targetPathArg);
+      if (!targetDir) return;
 
-      if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
-        console.error(`error: ${targetDir} is not a directory`);
+      if (!hasGitHead(targetDir)) {
+        console.error('error: rollback restores from git HEAD, but this is not a git repository with at least one commit.');
         process.exitCode = 1;
         return;
       }
 
-      const db = openGraph(targetDir);
+      let results;
       try {
-        const outcomes = await rollbackArtifacts(db, targetDir);
-
-        if (outcomes.length === 0) {
-          console.log('No tracked regions to roll back — run `ctxkeep analyze` first.');
-          return;
-        }
-
-        for (const outcome of outcomes) {
-          console.log(`${outcome.artifactPath} [${outcome.regionId}]: ${describe(outcome)}`);
-        }
-
-        const restored = outcomes.filter((o) => o.status === 'restored').length;
-        console.log(`\n${restored} region(s) restored, ${outcomes.length - restored} already matched or had nothing to restore.`);
-        console.log(
-          'Note: this reverts the FILE to match HEAD. A subsequent `ctxkeep analyze`/`sync` recomputes fresh ' +
-            'from the graph and may reintroduce the same content again if the underlying code hasn\'t changed.',
-        );
-      } finally {
-        db.close();
+        const artifacts = resolveArtifactConfigs(loadConfig(targetDir).config, targetDir);
+        results = planRollback(targetDir, listArtifactPaths(targetDir, artifacts));
+      } catch (err) {
+        handleError(err);
+        return;
       }
+
+      const verb = options.dryRun ? 'would restore' : 'restored';
+      for (const r of results) {
+        if (r.action === 'restore') {
+          const restored = r.outcomes.filter((o) => o.status === 'updated' || o.status === 'added').map((o) => o.id);
+          console.log(`${verb.padEnd(13)} ${r.path}  ${r.reason ?? restored.join(', ')}`);
+        } else if (r.action === 'unchanged') {
+          console.log(`${'unchanged'.padEnd(13)} ${r.path}  (matches HEAD)`);
+        } else if (r.action === 'skipped') {
+          console.log(`${'skipped'.padEnd(13)} ${r.path}  ${r.reason}`);
+        } else {
+          console.log(`${'ERROR'.padEnd(13)} ${r.path}  ${r.reason}`);
+          process.exitCode = 1;
+        }
+        if (r.newSinceHead.length) console.log(`${''.padEnd(13)} kept regions added since HEAD: ${r.newSinceHead.join(', ')}`);
+      }
+
+      if (!options.dryRun) writeRollback(targetDir, results);
+      if (results.some((r) => r.action === 'restore')) console.log(`\n${ROLLBACK_NOTE}`);
     });
 }

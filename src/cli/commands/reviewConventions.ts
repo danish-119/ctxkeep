@@ -1,17 +1,16 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import readline from 'node:readline';
 import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
-import { openGraph } from '../../graph/db';
-import { listPendingConventions, setConventionStatus, type ConventionRow } from '../../graph/conventions';
+import { openFreshGraph } from '../../pipeline';
+import { countPendingConventions, listPendingConventions, setConventionStatus, type ConventionRow } from '../../graph/conventions';
+import { handleError, resolveTarget } from '../shared';
 
-/** Ranked, not dumped (build spec §34) — top 10 by confidence, never the full backlog even if more exist. */
+/** Ranked, not dumped — the top 10 by agreement, never the whole backlog at once. */
 const REVIEW_LIMIT = 10;
 
 export type ReviewOutcome = 'confirmed' | 'rejected' | 'skipped';
 
-/** The testable core: given one answer string, applies (or doesn't) a status change. Separated from the I/O loop so it doesn't need a terminal/pipe to test. */
+/** The testable core: applies (or doesn't) one answer. Separated from the I/O loop so it needs no terminal. */
 export function applyReviewAnswer(db: Database.Database, conv: ConventionRow, rawAnswer: string): ReviewOutcome {
   const answer = rawAnswer.trim().toLowerCase();
   if (answer === 'y' || answer === 'yes') {
@@ -22,63 +21,69 @@ export function applyReviewAnswer(db: Database.Database, conv: ConventionRow, ra
     setConventionStatus(db, conv.id, 'rejected');
     return 'rejected';
   }
-  return 'skipped'; // anything else (including literal "s") — no DB write, stays pending
+  return 'skipped'; // anything else stays pending
 }
 
-function promptFor(conv: ConventionRow): string {
-  return `[${Math.round(conv.confidence * 100)}%] ${conv.statement}\nConfirm? (y/n/s to skip) `;
+export function promptFor(conv: ConventionRow): string {
+  const evidence = conv.evidenceFilePaths.slice(0, 3).join(', ') + (conv.evidenceFilePaths.length > 3 ? ', …' : '');
+  return (
+    `${conv.statement}\n` +
+    `  evidence: ${conv.matched}/${conv.sampleSize} files agree (${evidence})\n` +
+    'Confirm? Confirmed conventions are written into AGENTS.md. (y/n/s to skip) '
+  );
 }
 
 export function registerReviewCommand(program: Command): void {
-  const review = program.command('review').description('Review pending inferred facts (currently: conventions).');
+  const review = program.command('review').description('Review inferred facts before they are written into artifacts.');
 
   review
     .command('conventions')
     .description(
-      `Confirm, reject, or skip up to the top ${REVIEW_LIMIT} pending conventions (by confidence). ` +
-        'Confirmed ones appear in CLAUDE.md; rejected ones never resurface; skipped ones reappear next run.',
+      `Confirm, reject, or skip the top ${REVIEW_LIMIT} pending conventions. Confirmed ones are emitted while they still ` +
+        'hold in the code; rejected ones never resurface; skipped ones reappear next time.',
     )
     .argument('[path]', 'path to the repo', '.')
     .action(async (targetPathArg: string) => {
-      const targetDir = path.resolve(targetPathArg);
+      const targetDir = resolveTarget(targetPathArg);
+      if (!targetDir) return;
 
-      if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
-        console.error(`error: ${targetDir} is not a directory`);
-        process.exitCode = 1;
+      let db: Database.Database;
+      try {
+        db = openFreshGraph(targetDir);
+      } catch (err) {
+        handleError(err);
         return;
       }
 
-      const db = openGraph(targetDir);
       try {
         const pending = listPendingConventions(db, REVIEW_LIMIT);
         if (pending.length === 0) {
-          console.log('No pending conventions to review. Run `ctxkeep analyze` first if you haven\'t yet.');
+          console.log('No pending conventions. CtxKeep only proposes patterns followed by at least 80% of 3+ files.');
           return;
         }
 
-        console.log(`${pending.length} pending convention(s), top ${REVIEW_LIMIT} by confidence:\n`);
+        const total = countPendingConventions(db);
+        console.log(`${total} pending convention(s)${total > REVIEW_LIMIT ? `, showing the top ${REVIEW_LIMIT}` : ''}:\n`);
 
-        // A rl.question()-in-a-loop stalls after the first question when stdin
-        // is piped (non-TTY) rather than a real terminal — reproduced and
-        // confirmed with a minimal repro outside this codebase. The
-        // for-await-of async-iterator form is the documented, correct pattern
-        // for consuming readline input line-by-line and works in both modes.
+        // rl.question() in a loop stalls after the first question when stdin is
+        // piped (non-TTY); the async-iterator form works in both modes.
         const rl = readline.createInterface({ input: process.stdin });
         let index = 0;
         console.log(promptFor(pending[index]));
 
+        const tally: Record<ReviewOutcome, number> = { confirmed: 0, rejected: 0, skipped: 0 };
         for await (const line of rl) {
           const outcome = applyReviewAnswer(db, pending[index], line);
-          const note = outcome === 'skipped' ? ' (stays pending, will reappear next run)' : '';
-          console.log(`  -> ${outcome}${note}\n`);
-
+          tally[outcome] += 1;
+          console.log(`  -> ${outcome}${outcome === 'skipped' ? ' (will reappear next time)' : ''}\n`);
           index += 1;
           if (index >= pending.length) break;
           console.log(promptFor(pending[index]));
         }
         rl.close();
 
-        console.log('Run `ctxkeep analyze` or `ctxkeep sync` to recompile CLAUDE.md with any newly confirmed conventions.');
+        console.log(`${tally.confirmed} confirmed, ${tally.rejected} rejected, ${tally.skipped} skipped.`);
+        if (tally.confirmed > 0) console.log('Run `ctxkeep sync` to write confirmed conventions into your artifacts.');
       } finally {
         db.close();
       }

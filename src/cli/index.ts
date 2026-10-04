@@ -23,7 +23,7 @@ const program = new Command();
 
 program
   .name('ctxkeep')
-  .description('CtxKeep — keeps CLAUDE.md and AGENTS.md in sync with a living codebase.')
+  .description('CtxKeep — keeps AGENTS.md, ARCHITECTURE.md, and your other project docs in sync with the code.')
   .version(readVersion());
 
 registerTryCommand(program);

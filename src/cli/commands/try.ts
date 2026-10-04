@@ -1,42 +1,33 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { Command } from 'commander';
-import { createTwoFilesPatch } from 'diff';
-import { analyzeRepo } from '../../analysis/analyzeRepo';
-import { buildClaudeMdTemplate } from '../../adapters/claude/template';
+import { runPipeline } from '../../pipeline';
+import { describeChanges, handleError, printArtifactResults, printDiffs, resolveTarget } from '../shared';
 
 export function registerTryCommand(program: Command): void {
   program
     .command('try')
     .description(
-      'Zero-commitment preview: analyzes the repo and prints the proposed CLAUDE.md as a diff. Writes nothing to disk. No .ctxkeep/ config required.',
+      'Zero-commitment preview: shows exactly what `ctxkeep analyze` would write, as a diff against what is on disk. ' +
+        'Writes nothing — no files, no .ctxkeep/ directory.',
     )
-    .argument('[path]', 'path to the repo to analyze', '.')
+    .argument('[path]', 'path to the repo', '.')
     .action((targetPathArg: string) => {
-      const targetDir = path.resolve(targetPathArg);
+      const targetDir = resolveTarget(targetPathArg);
+      if (!targetDir) return;
 
-      if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
-        console.error(`error: ${targetDir} is not a directory`);
-        process.exitCode = 1;
+      let report;
+      try {
+        report = runPipeline({ rootDir: targetDir, mode: 'try' });
+      } catch (err) {
+        handleError(err);
         return;
       }
 
-      const result = analyzeRepo(targetDir);
-      for (const warning of result.warnings) {
-        console.error(`warning: ${warning}`);
-      }
-
-      const proposed = buildClaudeMdTemplate({
-        projectName: result.projectName,
-        languages: result.languagesPresent,
-        totalFiles: result.parsedFiles.length,
-        modules: result.modules,
-      });
-
-      const patch = createTwoFilesPatch('CLAUDE.md (empty)', 'CLAUDE.md (proposed)', '', proposed, '', '', {
-        context: proposed.split('\n').length,
-      });
-
-      console.log(patch);
+      for (const w of report.refresh.warnings) console.error(`warning: ${w}`);
+      console.log(describeChanges(report));
+      console.log('');
+      printDiffs(report.results);
+      console.log('Preview — would write:');
+      printArtifactResults(report.results);
+      console.log('\nNothing was written. To adopt: `ctxkeep init`, then `ctxkeep analyze`.');
     });
 }
