@@ -10,7 +10,7 @@ ctxkeep analyze             # apply
 git add -A && git commit -m "Upgrade CtxKeep to v0.2"
 ```
 
-Your `.ctxkeep/config.yaml` keeps working as it is. Your convention review decisions are kept. Text you wrote outside CtxKeep's markers is not touched.
+Your `.ctxkeep/config.yaml` keeps working as it is. Your convention review decisions are kept, and from v0.3 on they are exported to `.ctxkeep/conventions.yaml` on the first run; commit that file. Text you wrote outside CtxKeep's markers is not touched.
 
 ## What changes in your files
 

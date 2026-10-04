@@ -127,7 +127,7 @@ The rules were tuned on 18 real projects. The final run reported 4 findings, of 
 
 ## The graph
 
-`src/graph/schema.ts` (schema v2): `files`, `symbols`, `imports`, `conventions`, `meta`. Everything except confirmed and rejected rows in `conventions` is a regenerable cache. `src/graph/db.ts` migrates v0.1 graphs (keeping review decisions and re-keying their module ids), refuses graphs from newer versions, and turns a corrupt file into an actionable error.
+`src/graph/schema.ts` (schema v2): `files`, `symbols`, `imports`, `conventions`, `meta`. The whole graph is a regenerable cache. Convention review decisions live in the committed `.ctxkeep/conventions.yaml` (`src/config/decisions.ts`), and the graph mirrors that file on every run, so generated docs are reproducible from the repo alone. Decisions found only in an older graph are exported to the file once. `src/graph/db.ts` migrates v0.1 graphs (keeping review decisions and re-keying their module ids), refuses graphs from newer versions, and turns a corrupt file into an actionable error.
 
 ## Tests
 

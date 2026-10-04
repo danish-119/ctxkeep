@@ -283,4 +283,4 @@ Import resolution handles relative imports, TypeScript ESM `.js` → `.ts` speci
 | test location | repo | "Tests live in a separate `tests/` tree, not next to source files." |
 | test naming | repo | "Test files are named `test_*.py`." |
 
-Confirmed conventions go into the `conventions` section while they still hold in the code. One that stops holding is dropped, and `sync` prints a warning. Rejected ones never come back. Review decisions are stored in `.ctxkeep/graph.sqlite`, the only data there that can't be regenerated.
+Confirmed conventions go into the `conventions` section while they still hold in the code. One that stops holding is dropped, and `sync` prints a warning. Rejected ones never come back. Review decisions are saved to `.ctxkeep/conventions.yaml`. Commit it: generated docs depend on it, and with it a fresh clone or CI regenerates them exactly. You can also edit it by hand (`confirmed:` / `rejected:` lists of convention ids).

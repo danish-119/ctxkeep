@@ -391,3 +391,20 @@ The final pass had 4 findings: 3 real stale statements (a file moved into a Next
 `sync` prints drift as a reminder and keeps its exit code. `check` is the command that fails, so CI and pre-commit can rely on it.
 
 ---
+
+## 2026-10-04 — Convention decisions move to a committed file; CtxKeep runs on its own repo
+
+**Found by turning CtxKeep on in its own repo.** Review decisions lived only in `.ctxkeep/graph.sqlite`, which is gitignored. A fresh clone or a CI runner would therefore regenerate AGENTS.md without the confirmed conventions, and `ctxkeep check` would fail. The generated docs weren't reproducible from the repo.
+
+**Chosen:** decisions live in `.ctxkeep/conventions.yaml` (`confirmed:` / `rejected:` lists of convention ids). It's committed, written by `ctxkeep review conventions` after every answer, and editable by hand. The graph mirrors the file on every run, which makes the graph a pure cache. Decisions found only in an older graph are exported to the file once; on this repo that carried July's v0.1 decisions through the v0.2 migration into the file.
+
+**Rejected:** committing `graph.sqlite` (a binary file that changes on every scan) and storing decisions inside AGENTS.md (it would mix human input into a generated region).
+
+**Also from dogfooding:**
+- **Grouped conventions.** The same rule confirmed for several modules is stated once ("Files in `src/analysis/`, `src/cli/`, … use named exports only"), not seven times in an always-loaded file.
+- **Self-invocation.** In CtxKeep's own repo the agent workflow uses `npm run dev --`, so agents run the code being worked on.
+- **Suggestion ranking.** Edit distance now beats prefix matches: `applyRegion` suggests `applyRegions`, not `apply`.
+
+CI (`.github/workflows/ci.yml`) runs the tests on Linux, macOS and Windows (Node 20, 22 and 24), plus `ctxkeep check` on this repo's own docs.
+
+---

@@ -8,6 +8,8 @@ CtxKeep keeps your project's agent context and documentation (`AGENTS.md`, `ARCH
 
 It works on web, mobile, backend, and AI projects: TypeScript/JavaScript (including React/JSX), Python, and Dart/Flutter are indexed down to symbols and imports. Swift, Kotlin, Java, Go, Rust, C#, and more are tracked at the file level.
 
+> **This repo uses CtxKeep on itself.** [`AGENTS.md`](AGENTS.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`.ai/manifest.md`](.ai/manifest.md) are generated and kept current by CtxKeep, next to hand-written notes it never touches. CI runs `ctxkeep check` on every push.
+
 ## Why CtxKeep exists
 
 Coding agents lose track of a project in two ways. Context rot sets in as the codebase outgrows what fits usefully in a context window. Session amnesia means every session starts cold. Hand-written `AGENTS.md`/`CLAUDE.md`/architecture docs help, but they drift: nothing keeps them true as the code changes. Generic LLM-written context files don't fix this either. [Research shows](https://the-decoder.com/context-files-for-coding-agents-often-dont-help-and-may-even-hurt-performance/) they mostly restate what an agent can read for itself, and they cost more than they help.
@@ -170,7 +172,7 @@ Run `ctxkeep` with no arguments for an overview, and `ctxkeep <command> --help` 
 
 Exit codes: `0` on success; `1` on an error, on a hand-edit conflict, when `ctxkeep check` finds stale or wrong docs, or (with `sync --check`) when any generated section is out of date.
 
-`.ctxkeep/config.yaml` should be committed. `.ctxkeep/graph.sqlite` is a regenerable cache and is ignored via `.ctxkeep/.gitignore`. The one thing it holds that can't be regenerated is your convention review decisions.
+Commit `.ctxkeep/config.yaml` and `.ctxkeep/conventions.yaml` (your convention review decisions). `.ctxkeep/graph.sqlite` is a pure cache, ignored via `.ctxkeep/.gitignore`, so a fresh clone or a CI runner regenerates exactly the same docs.
 
 Upgrading from v0.1? Run `ctxkeep analyze --dry-run` and read [docs/upgrading-to-v0.2.md](docs/upgrading-to-v0.2.md). Your config and convention decisions carry over, and there's a one-time diff in the generated files.
 
