@@ -342,6 +342,6 @@ Content hashing has none of these failure modes. It also works without git, and 
 - **Prebuild coverage:** `tree-sitter@0.21.1` ships prebuilt binaries only for darwin-arm64, darwin-x64, linux-x64 and win32-x64. On linux-arm64 (Graviton CI, Docker on Apple Silicon) or Windows-on-ARM, install falls back to a source build that needs a C++ toolchain. This is the same class of risk as the `better-sqlite3` entries above; revisit it when bumping the tree-sitter pin.
 - **npm install-script warnings:** npm 11 prints "allow-scripts" warnings for the install scripts of the five native packages. In 11.17 they are advisory (the binaries were in place). A future npm that blocks them by default would need `npm approve-scripts` documented.
 
-Not published yet. Publishing is an explicit owner decision.
+Published to npm as `ctxkeep@0.2.0` on 2026-10-04.
 
 ---

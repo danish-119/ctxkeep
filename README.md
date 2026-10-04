@@ -27,8 +27,7 @@ npx ctxkeep try                 # preview in any repo; writes nothing
 npm install --save-dev ctxkeep  # or: npm install -g ctxkeep
 ```
 
-> Not yet published to npm. Until then, build it from source:
-> `git clone https://github.com/danish-119/ctxkeep.git && cd ctxkeep && npm install && npm run build`, then run `node dist/cli/index.js <command> /path/to/repo` (or `npm link` to get a `ctxkeep` command).
+To run from source instead: `git clone https://github.com/danish-119/ctxkeep.git && cd ctxkeep && npm install && npm run build`, then `node dist/cli/index.js <command> /path/to/repo`, or run `npm link` to get a `ctxkeep` command.
 
 Native dependencies: `tree-sitter` ships prebuilt binaries for macOS (arm64/x64), Linux x64, and Windows x64. On other platforms (e.g. Linux arm64), `npm install` compiles them and needs a C/C++ toolchain.
 
