@@ -45,9 +45,10 @@ ctxkeep analyze --dry-run         # 3. review
 ctxkeep analyze                   #    ...and write
 # ...edit code, as usual...
 ctxkeep sync                      # 4. patch only what changed
-ctxkeep sync --check              # 5. in CI / pre-commit: exit 1 if any doc is stale
+ctxkeep check                     # 5. before committing / in CI: exit 1 if docs are stale or wrong
 ```
 
+<!-- ctxkeep-ignore-start: example output from another repo -->
 Real `sync` output after adding a new module (`src/api`) and editing a file in an existing one:
 
 ```text
@@ -59,6 +60,7 @@ Artifacts:
 ```
 
 Had the edit only added a function to `src/utils`, the only change would have been the `module:src/utils` region of `.ai/manifest.md`.
+<!-- ctxkeep-ignore-end -->
 
 ## What gets generated
 
@@ -80,7 +82,7 @@ By default, CtxKeep maintains these files:
 | Claude Code | `CLAUDE.md` | `@AGENTS.md` |
 | Gemini CLI | `GEMINI.md` | `@./AGENTS.md` |
 
-Pointer files are created only when the repo already uses that tool (a `CLAUDE.md` or `.claude/`, a `GEMINI.md` or `.gemini/`), or when you list it in config (`agents: [claude, gemini]`). An existing hand-written `CLAUDE.md` keeps its text; the import is added below it. Tool-specific rule files (`.cursor/rules`, `.github/copilot-instructions.md`, …) are left alone.
+Pointer files are created only when the repo already uses that tool (a `CLAUDE.md` or `.claude/`, a `GEMINI.md` or `.gemini/`), or when you list it in config (`agents: [claude, gemini]`). An existing hand-written `CLAUDE.md` keeps its text; the import is added below it. Tool-specific rule files (`.cursor/rules`, `.github/copilot-instructions.md`, …) are left alone. <!-- ctxkeep-ignore -->
 
 ## Maintaining your own docs
 
@@ -106,7 +108,7 @@ artifacts:
 Sections available: `overview`, `commands`, `layout`, `conventions`, `architecture`, `key-files`, `key-abstractions`, `agents-import`, and the per-module `module`, `module-summary`, `module-api`, `module-files`.
 
 - **With `sections`, the list is authoritative.** Missing sections are inserted next to their neighbours. A known section you remove from the list is removed from the file, unless you edited it by hand.
-- **Without `sections` (fill mode),** CtxKeep fills only the markers you place yourself, exactly where you place them. This is how you embed generated facts in a hand-written `DESIGN.md`:
+- **Without `sections` (fill mode),** CtxKeep fills only the markers you place yourself, exactly where you place them. This is how you embed generated facts in a hand-written `DESIGN.md`: <!-- ctxkeep-ignore -->
 
   ```md
   ## Domain model
@@ -118,6 +120,29 @@ Sections available: `overview`, `commands`, `layout`, `conventions`, `architectu
 - **`{module}` / `{module_dir}`** expand to one file per module, and `modules:` filters which ones. When a module disappears, its file is deleted if nothing human-written remains in it.
 
 Modules are inferred from folders (`src/<name>`, `packages/<name>`, `lib/<name>`, …) and can be overridden in config, as can ignored paths. **Every option, section, and default is described in [docs/configuration.md](docs/configuration.md).**
+
+## Catching docs that lie
+
+Generated sections can't go stale. The text *you* write can: a README says `npm run test:unit` after the script was renamed, or AGENTS.md points at a folder that moved. `ctxkeep check` reads the hand-written parts of AGENTS.md, CLAUDE.md, README.md, CONTRIBUTING.md and any configured docs, and verifies every command, path, link and code name they mention against the real repo: <!-- ctxkeep-ignore: illustrative output -->
+
+```text
+Hand-written docs: 2 statement(s) no longer match the code:
+
+  README.md:19  `app/page.tsx`: path does not exist (did you mean `app/(route)/page.tsx`?)
+  AGENTS.md:31  `npm run test:unit`: `test:unit` is not a script in package.json (did you mean `test`?)
+```
+
+It only looks at text written as code (backticks, shell blocks) or as links, so ordinary prose never produces a finding. It accepts paths written relative to an app folder in a monorepo, and import paths without extensions. If a mention is hypothetical on purpose, add `<!-- ctxkeep-ignore -->` to the line (or wrap a passage in `ctxkeep-ignore-start` / `ctxkeep-ignore-end`), or list it under `drift.ignore` in config.
+
+### Let your coding agent fix it
+
+CtxKeep finds what's wrong deterministically; the AI you already use rewrites the text. Nothing calls an AI API, and you need no key.
+
+- Generated AGENTS.md includes a short **"Keeping these docs true"** section telling every agent (Claude Code, Codex, Cursor, Copilot, …) to run `ctxkeep sync`, then `ctxkeep check`, and fix what it reports.
+- `ctxkeep check --json` gives agents a precise list: file, line, what's wrong, and a suggested fix.
+- In repos that use Claude Code, CtxKeep also maintains a **`/update-docs`** slash command that runs the whole loop.
+
+You review the resulting diff like any other change.
 
 ## Safety model
 
@@ -135,7 +160,8 @@ Modules are inferred from folders (`src/<name>`, `packages/<name>`, `lib/<name>`
 | `ctxkeep try [path]` | Preview of everything `analyze` would write. No config needed, writes nothing. |
 | `ctxkeep init [path]` | Writes a commented `.ctxkeep/config.yaml` with agent tools detected from the repo. |
 | `ctxkeep analyze [path] [--dry-run] [--force]` | Full re-parse; use after upgrading CtxKeep or changing config. |
-| `ctxkeep sync [path] [--dry-run] [--check] [--force]` | Incremental update. `--check` exits 1 if anything is stale (for CI). |
+| `ctxkeep sync [path] [--dry-run] [--check] [--force]` | Incremental update. `--check` exits 1 if any generated section is stale. |
+| `ctxkeep check [path] [--json]` | Verify everything, write nothing: generated sections are current, and hand-written docs mention no missing command, path, link or code name. Exits 1 otherwise. |
 | `ctxkeep review conventions [path]` | Confirm, reject, or skip detected conventions (at least 3 samples, at least 80% agreement). |
 | `ctxkeep rollback [path] [--dry-run]` | Restore generated regions to `HEAD`. |
 

@@ -1,6 +1,6 @@
 {
   "name": "ctxkeep",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Keeps AGENTS.md, ARCHITECTURE.md, and other project docs in sync with the code: generated from tree-sitter analysis, patched incrementally, never touching human-written text.",
   "license": "MIT",
   "type": "commonjs",

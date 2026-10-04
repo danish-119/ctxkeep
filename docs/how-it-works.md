@@ -103,6 +103,24 @@ Text outside markers is passed through byte for byte. The file's dominant line e
 
 Because each marker carries its own hash, safety doesn't depend on local state. Any clone, CI runner, or `rollback` can tell generated content from hand edits.
 
+## Drift checking (`ctxkeep check`)
+
+Generated regions can't go stale. Hand-written text can, and it's the text that matters most to agents. `src/drift/` checks it in two steps:
+
+1. **`extract.ts`** reads the human parts of each doc. It skips generated regions, `ctxkeep-ignore` lines and blocks, and non-shell code blocks. From what's left it collects references written as code or links:
+   - commands in backticks or shell blocks (`npm`/`pnpm`/`yarn`/`bun` scripts, `make` targets, tracking `cd` within a line and across the lines of a block);
+   - paths in backticks;
+   - markdown link targets;
+   - code names in backticks (`Foo.bar()`, multi-hump identifiers).
+2. **`verify.ts`** checks each reference against the real repo:
+   - commands against the `package.json`/`Makefile` of the directory they run in;
+   - paths and links against the file listing, accepting extension/index variants and paths that match the end of a real path (monorepo-relative mentions), and skipping gitignored, package, placeholder and out-of-repo paths;
+   - code names against indexed symbols, then the source text.
+
+   Suggestions come from the closest script name (edit distance) or the unique file with the same name, never from tests or fixtures.
+
+The rules were tuned on 18 real projects. The final run reported 4 findings, of which 3 were real stale statements and 1 a deliberate mention of a library API. `check` runs the sync pipeline in preview mode for freshness, then drift, and exits 1 if either finds something; `--json` returns `{ ok, stale, drift, fix }` for agents. `sync` prints a short drift reminder but doesn't fail on it.
+
 ## Rollback
 
 `src/compiler/rollback.ts` reads each artifact at HEAD (`git show HEAD:./<path>`, which works from a subdirectory too) and parses its regions. It then runs `applyRegions` with HEAD's regions as the desired set and `force` enabled, so hand edits inside regions are reverted. Regions added since HEAD are kept and reported. A file deleted since HEAD is restored whole.

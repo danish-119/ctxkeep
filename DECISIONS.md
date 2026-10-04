@@ -364,3 +364,30 @@ Published to npm as `ctxkeep@0.2.0` on 2026-10-04.
 **Rejected:** child-process parallelism, because workers proved to work with the pinned tree-sitter binding and are cheaper; and making the pipeline async for workers, which would have churned every API and test for no user-visible gain.
 
 ---
+
+## 2026-10-04 — v0.3.0: drift checking, and letting the developer's own AI fix docs
+
+**Problem:** research on context files shows that what helps agents is non-discoverable, human-written knowledge, and that is exactly the text that silently goes stale. Generated sections were already kept true; hand-written ones weren't checked at all.
+
+**Chosen: `ctxkeep check`.** It deterministically verifies every command, path, link and code name that the hand-written parts of the docs mention, against the real repo. It reports findings with a file, a line and a suggestion, and never edits human text. Only text written as code or as links is considered, so prose can't produce findings.
+
+Rules were tuned on 18 real projects. The first pass had 10 findings with 6 false positives, each with a fixable cause:
+- `cd` on the previous line of a shell block;
+- monorepo-relative paths;
+- extension-less import paths;
+- `a/b/c` prose that isn't a path;
+- `../` paths written from a subfolder;
+- `MyPanel.ts` placeholders.
+
+The final pass had 4 findings: 3 real stale statements (a file moved into a Next.js route group, a removed service, a moved types file) and 1 deliberate mention of a library API. That last kind is what `<!-- ctxkeep-ignore -->` is for.
+
+**Chosen: the developer's AI does the fixing, not an AI call inside CtxKeep.** AGENTS.md gets a generated "Keeping these docs true" section that tells every agent to run `sync`, then `check`, and fix what it reports. `check --json` gives the agent a precise to-do list. In Claude Code repos, an `/update-docs` slash command runs the loop. No API key, no cost, and nondeterminism stays out of detection: CtxKeep decides *what* is wrong, the AI only rewrites the sentence, and a human reviews the diff.
+
+**Rejected for now:**
+- **An LLM call inside CtxKeep (`--draft-with-claude`).** It adds keys, cost and vendor coupling for something the user's agent already does better with full context. It remains a candidate for an unattended CI mode later.
+- **An MCP server.** It's the next step, once this loop proves useful; the same `check` engine would back its tools.
+- **Flagging all-lowercase words and `ALL_CAPS` names as code names.** Too many false positives (CLI flags, env vars read through config libraries).
+
+`sync` prints drift as a reminder and keeps its exit code. `check` is the command that fails, so CI and pre-commit can rely on it.
+
+---
