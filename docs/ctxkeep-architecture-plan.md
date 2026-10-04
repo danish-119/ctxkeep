@@ -1,6 +1,16 @@
 # CtxKeep
 ### The AI Context Operating System — a Claude Code–first, adapter-based architecture for keeping AI coding assistants permanently in sync with a living codebase
 
+> **Revision note (2026-10-04, v0.2).** This is the long-term vision document, kept as written. The shipped implementation deliberately diverges from it in these places; `DECISIONS.md` has the reasoning for each:
+>
+> - **Tool-agnostic, not Claude-first.** By 2026, `AGENTS.md` is read natively by Codex, Cursor, Copilot, Windsurf, Zed, Cline, and others, so it is the canonical output. Claude Code and Gemini CLI get a one-line pointer file (`@AGENTS.md`) instead of their own compiled copy (affects §1, §2, §18, §19).
+> - **Change detection uses content hashes of the working tree,** not `git diff <checkpoint>..HEAD` (§13, §25). There is no `Checkpoint` table.
+> - **Each region's integrity hash lives in its own marker** (`<!-- ctxkeep:start:id sha=… -->`), not in an `ArtifactBinding` table, so safety works on any clone without local state (§9, §16).
+> - **Adapters are config-driven artifacts built from a section registry**, not Reader/Writer plugins (§17, §18). Documentation beyond agent context (`ARCHITECTURE.md`, per-module docs, embedded regions in a hand-written `DESIGN.md`) is in scope.
+> - **"Token budgets" are fixed caps,** and always-loaded files carry no counts so they change only on structural change (§16). Scored pruning has not been built.
+>
+> For how the current system works, see [`how-it-works.md`](how-it-works.md). For configuration, see [`configuration.md`](configuration.md).
+
 ---
 
 ## Executive Summary
@@ -331,6 +341,8 @@ Claude's adapter is the **reference implementation**, built and maintained in co
 ---
 
 ## 19. Claude-First Architecture and Why
+
+> **Revised in v0.2:** the shipped design is tool-agnostic. `AGENTS.md` is canonical, and Claude Code gets a pointer `CLAUDE.md` (`@AGENTS.md`), as does Gemini CLI (`GEMINI.md`). The Claude-specific integrations below (hooks, Skills, MCP) remain possible later layers, but no core output depends on them. See `DECISIONS.md`, "v0.2: AGENTS.md is canonical".
 
 Claude Code is the design center, not just the first adapter shipped, for concrete reasons grounded in what it actually exposes:
 

@@ -165,6 +165,8 @@ actually past end-of-life rather than working around it indefinitely.
 
 ## 2026-07-11 — `checkpoints` is intentionally append-only, not upserted
 
+> **Superseded 2026-10-04 (v0.2):** the `checkpoints` table no longer exists. Change detection moved from git-diff-against-checkpoint to content hashing (see "v0.2: change detection by content hash" below).
+
 **Note, not a decision to revisit:** `checkpoints` (build spec §3) has no
 `UNIQUE` constraint on `module_id`, unlike `artifact_bindings` (which does,
 and is genuinely upserted). Every successful resync of a module inserts a
@@ -184,17 +186,23 @@ most-recent-row lookup (ordering, not just presence) is covered by
 
 ## 2026-07-11 — Known gap: confirmed/rejected convention status is never re-evaluated
 
+> **Resolved 2026-10-04 (v0.2):** conventions are re-detected every run; a confirmed one that stops holding goes inactive, is no longer emitted, and is reported as lapsed. See "v0.2: conventions".
+
 Once a convention is confirmed or rejected via `ctxkeep review conventions`, its status is permanent — `upsertConventions` refreshes `statement`/`confidence` on re-analysis but never touches `status` (by design, see the entry above this one). This means a **confirmed** convention keeps appearing in `CLAUDE.md` even if the underlying code later stops following that pattern (e.g. a module that was 9/9 named-exports at confirmation time drifts to 4/9 after refactoring) — nothing currently detects or flags that drift. Known MVP limitation, not a bug, not fixed yet.
 
 ---
 
 ## 2026-07-11 — Known gap: module deletion/rename orphans that module's `conventions` rows
 
+> **Resolved 2026-10-04 (v0.2):** module rows no longer exist (membership is computed per run). A vanished module's conventions go inactive, and its artifact regions/files are removed. See "v0.2: conventions" and "v0.2: the artifact system".
+
 `conventions.module_id` references `modules.id`, but nothing deletes or re-keys existing convention rows when a module disappears (folder removed) or is effectively renamed (folder renamed, which this project's folder-based module inference treats as a brand-new module id). The old rows stay in the table forever, referencing a `module_id` that no longer resolves to anything in `modules` — orphaned, not cleaned up. Same class of gap as the "module = folder, no removal handling" cut already noted for `persistAnalysis`/`persistModuleSymbols`; not fixed yet.
 
 ---
 
 ## 2026-07-11 — `ctxkeep rollback` regenerates from git HEAD; it does not restore from its own history
+
+> **Partly superseded 2026-10-04 (v0.2):** it still restores from HEAD, but now enumerates regions from the files' own markers instead of `artifact_bindings` (which no longer exists), so it works on a fresh clone with no graph. The `verifyAgainstDisk` workaround described below is gone: every write path now compares against disk.
 
 **Chosen:** `ctxkeep rollback` reverts each CtxKeep-owned region to its content **as of the last git commit (HEAD)**, by reading the historical file content via `git show HEAD:<path>`, extracting that region's content with `extractRegionContent` (the exact inverse of `patchRegion`'s splice), and re-patching it into the current working-tree file through the normal `patchRegion` path.
 
@@ -207,5 +215,133 @@ Once a convention is confirmed or rejected via `ctxkeep review conventions`, its
 **Known limitation, stated explicitly in the CLI's own output:** this reverts the *compiled file* to match HEAD; it does not undo anything in the graph (`modules`/`symbols`/`conventions`). If nothing in the source code changed, the next `ctxkeep analyze`/`sync` recomputes the same facts from the graph and can reintroduce the exact content rollback just reverted. This is expected, not a bug — the same way reverting a generated build artifact doesn't stop the next build from regenerating it. Rollback is for undoing an unwanted *compiled* change (e.g. a bad manual edit inside the markers, or "I don't want this sync's output yet"), not for undoing what the graph itself now believes is true.
 
 **Bug found while testing this, fixed the same day:** the first implementation reused `patchRegion` as-is, which decides NO_OP by comparing against the *cached* hash in `artifact_bindings` — correct for analyze/sync, where patchRegion is the only writer, but wrong for rollback, whose entire job is detecting content that drifted *without* going through patchRegion (a hand-edit). The cache doesn't know about that drift, so rollback silently did nothing in exactly the case it exists to handle. Fixed by adding `patchRegion({ ..., verifyAgainstDisk: true })`, which for rollback's call only compares against what's actually on disk right now instead of the cache. The analyze/sync hot path is unchanged and untouched by this.
+
+---
+
+## 2026-10-04 — v0.2: what was weak, and the shape of the fix
+
+Dogfooding v0.1 on this repo produced a 228-line CLAUDE.md. Most of it was test helpers (`db`, `counter`, `REPO_ROOT`) labelled "export", fixtures were indexed as code, and `test/` was mis-globbed as `src/test/**`. The manifest still said change detection "arrives in Milestone 4". Meanwhile, 2026 research on context files is consistent: auto-generated files that restate discoverable code *hurt* agents, and what helps is short, non-discoverable, exact information, with commands first. The sources are the [ETH Zurich study](https://the-decoder.com/context-files-for-coding-agents-often-dont-help-and-may-even-hurt-performance/) and [GitHub's analysis of 2,500 AGENTS.md files](https://github.blog/ai-and-ml/github-copilot/how-to-write-a-great-agents-md-lessons-from-over-2500-repositories/). v0.2 is organised around that finding, not around adding features.
+
+**Rejected:** a larger rewrite toward the architecture plan's IR/impact engine, LLM prose, or MCP. None of them fixes the trust problem, and all of them grow the surface that has to be trustworthy.
+
+---
+
+## 2026-10-04 — v0.2: AGENTS.md is canonical; pointer files are per-tool and opt-in by evidence
+
+**Chosen:** `AGENTS.md` holds the always-loaded context. Tools that don't read it natively get a pointer file containing only an import line in that tool's syntax: `CLAUDE.md` (`@AGENTS.md`, Claude Code memory imports) and `GEMINI.md` (`@./AGENTS.md`, Gemini CLI's memory import processor). Pointers are emitted only when `agents:` lists the tool, or when the repo already shows it in use (`CLAUDE.md`/`.claude`, `GEMINI.md`/`.gemini`). All tool knowledge lives in one table, `src/artifacts/agents.ts`.
+
+**Rejected:**
+
+- **v0.1's duplicated overview/modules in both CLAUDE.md and AGENTS.md.** Two copies drift.
+- **Copying content into every tool's native format** (`.cursor/rules`, `.github/copilot-instructions.md`, …). As of 2026, those tools read AGENTS.md natively (Codex, Cursor, Copilot, Windsurf, Zed, Cline, Jules), so copies add drift risk for no gain.
+- **Always emitting CLAUDE.md.** It privileges one vendor and creates a file most repos don't need.
+
+**Upgrade path:** a v0.1 config (`adapters.claude.enabled: true`) still yields CLAUDE.md. Its old `overview`/`modules`/`module:*` regions are removed on upgrade (they carry no hash, so they count as unedited), and human text is kept.
+
+---
+
+## 2026-10-04 — v0.2: always-loaded content changes only on structural change
+
+**Chosen:** `AGENTS.md` sections carry no counts (files per module, symbols, import weights). Counts live in the on-demand docs (`ARCHITECTURE.md`, `.ai/manifest.md`). Adding a file to an existing module therefore never rewrites AGENTS.md. That keeps the agent's prompt cache warm (architecture plan §16) and git history readable.
+
+**Accepted cost:** `.ai/manifest.md` ranks exported symbols by how many files import them, so a new import elsewhere can update a module card whose files didn't change. That is an honest change to what the card states, in a file that isn't always loaded.
+
+---
+
+## 2026-10-04 — v0.2: change detection by content hash, not `git diff <checkpoint>..HEAD`
+
+**Chosen:** the graph's `files` table stores size, mtime and sha1 for each tracked file. `sync` stats every file and hashes only those whose size or mtime moved, or that fall in a 2-second "racy" window around the previous scan (the same rule git's index uses). It re-parses only files whose hash changed. Deleted paths cascade-delete their symbols and imports.
+
+**Why:** v0.1's approach had real false negatives:
+
+- A deleted file never marked its module stale, so its symbols stayed forever.
+- Renames lost the old path.
+- A rebased-away checkpoint SHA crashed sync with a misleading message.
+- Uncommitted edits were invisible.
+- `analyze` wrote no checkpoints, so the first `sync` rescanned everything.
+
+Content hashing has none of these failure modes. It also works without git, and it is file-granular instead of module-granular.
+
+**Supporting choices:**
+
+- **Imports are stored raw and resolved at render time** against the current file set. Adding a file that satisfies an existing import updates the dependency graph without re-parsing the importer.
+- **Module membership isn't stored at all.** It's a pure function of path and config, so changing module overrides needs no re-parse or migration.
+- **A `parser_version` in `meta`** forces one full re-parse when extraction logic changes.
+
+**Rejected:** keeping git as the change source "because the architecture plan says so" (§13). The plan's goal is correct incremental recompute. Git history was a means to that, and the wrong one for a tool that works on the working tree.
+
+---
+
+## 2026-10-04 — v0.2: ownership and integrity live in the markers, not the graph
+
+**Chosen:** markers carry a hash of the content CtxKeep wrote: `<!-- ctxkeep:start:<id> sha=<12 hex> -->` … `<!-- ctxkeep:end:<id> -->`. NO_OP is decided by comparing against what's on disk. `artifact_bindings` is removed.
+
+**Why:** `graph.sqlite` is gitignored, so on any teammate's clone v0.1 had no bindings. Hand-edits inside markers were silently overwritten, and `rollback` found nothing to roll back. With the hash in the file, every clone can tell "generated, untouched" apart from "edited by hand". Hand-edited regions are reported as conflicts (exit 1) and are never overwritten or removed without `--force`. Named end markers mean a stray end marker can't close the wrong region.
+
+**Also changed:**
+
+- Markers inside fenced code blocks are ignored, so docs can show examples.
+- Malformed marker pairs fail only that one file, with a line number.
+- The file's dominant line ending (LF or CRLF) is preserved, replacing v0.1's normalise-to-LF.
+- Writes go to a temp file and are then renamed into place.
+
+---
+
+## 2026-10-04 — v0.2: the artifact system
+
+**Chosen:** an artifact is a path plus an ordered list of sections in config. A section is a named, pure renderer over the context model (`src/artifacts/sections.ts`). New documentation types are config, not CLI code. The rules:
+
+- **With `sections`, the list is authoritative.** Missing listed sections are inserted next to their neighbours, and known sections that aren't listed are removed (if unedited).
+- **Without `sections` ("fill mode"),** only markers the author placed are filled, in place. This is how generated facts get embedded into a hand-written `DESIGN.md` without CtxKeep dictating its structure.
+- **`{module}` (slug) and `{module_dir}` (folder) templates** produce per-module docs or nested `AGENTS.md` files. A file whose module vanished is deleted only if nothing human-written remains in it.
+
+**Which artifacts are affected** is answered by rendering every artifact from the graph on each run and letting content comparison decide. Rendering takes milliseconds; parsing is the expensive part, and it stays incremental.
+
+**Rejected:** per-section dependency declarations. A wrong declaration is a silent false negative, which is exactly the failure this release removes elsewhere.
+
+---
+
+## 2026-10-04 — v0.2: conventions are strict, value-keyed, and re-validated
+
+**Chosen:**
+
+- **Thresholds:** a candidate needs at least 3 samples and at least 80% agreement.
+- **Only positive patterns are proposed.** v0.1's "N functions have no try/catch" described an absence, not a convention.
+- **Detectors:** export style and multi-word file naming per module; test location and test naming repo-wide.
+- **The id includes the detected value** (`src/api:export-style:named`). If the code flips style, a human's confirmation can't silently transfer to the new claim.
+- **Every run re-detects.** Confirmed conventions that are no longer true are not emitted, and are reported as lapsed.
+- **Statements are count-free,** so they don't churn AGENTS.md.
+
+**Migration:** v0.1 graphs are migrated to schema `user_version` 2. Confirmed and rejected rows are re-keyed from folder names to path ids using the old `modules.path_glob`. Everything else in the graph is cache and is rebuilt.
+
+---
+
+## 2026-10-04 — v0.2: language coverage for "any project"
+
+**Chosen:**
+
+- **File-level tracking for every common source extension:** Swift, Kotlin, Java, Go, Rust, C#, C/C++, Ruby, PHP, Vue, Svelte, notebooks, and more. This gives layout, sizes and change detection.
+- **Tree-sitter parsing for TS/JS and Python,** covering symbols and imports. JS/TS now includes `.jsx/.mjs/.cjs/.mts/.cts`, and resolution handles tsconfig `paths` aliases and the Python src layout.
+- **A line-based extractor for Dart:** top-level types plus `import`/`part` directives, with `package:<self>/` resolution. It is reliable because `dart format` puts every top-level declaration at column 0, and it gives Flutter apps real symbols and dependency edges without a grammar.
+
+**Rejected for now:** tree-sitter grammars for Swift, Kotlin, Go and Rust. Each would need the native peer-dependency pin from the first entry of this file re-validated, and would widen the prebuild matrix below. Artifacts state explicitly which languages are file-level only, rather than implying completeness.
+
+**Stack facts and commands:**
+
+- Stack facts come only from declared manifest data (dependency names, lockfiles, Gradle plugins, `Package.swift`, `*.xcodeproj`, `go.mod`, …), and each is rendered with its source.
+- Standard toolchain commands (`flutter test`, `./gradlew test`, `go test ./...`, `cargo test`, `pytest`) are emitted only when the project defines no scripts or targets of its own.
+
+---
+
+## 2026-10-04 — v0.2: distribution is an npm CLI; native prebuild matrix
+
+**Chosen:** CtxKeep ships as an npm package that exposes the `ctxkeep` binary. People can run it with `npx ctxkeep try`, install it with `npm i -D ctxkeep`, or install it globally. It works on non-JS projects; Node ≥ 20 is the only requirement on the machine. There is no stable programmatic API in v0.2.
+
+**Verified 2026-10-04:** `npm pack`, then install into an empty project, then `npx ctxkeep try`/`analyze`/`sync`, on npm 11.17, Node 24, win32-x64. It works. Two facts are carried forward:
+
+- **Prebuild coverage:** `tree-sitter@0.21.1` ships prebuilt binaries only for darwin-arm64, darwin-x64, linux-x64 and win32-x64. On linux-arm64 (Graviton CI, Docker on Apple Silicon) or Windows-on-ARM, install falls back to a source build that needs a C++ toolchain. This is the same class of risk as the `better-sqlite3` entries above; revisit it when bumping the tree-sitter pin.
+- **npm install-script warnings:** npm 11 prints "allow-scripts" warnings for the install scripts of the five native packages. In 11.17 they are advisory (the binaries were in place). A future npm that blocks them by default would need `npm approve-scripts` documented.
+
+Not published yet. Publishing is an explicit owner decision.
 
 ---

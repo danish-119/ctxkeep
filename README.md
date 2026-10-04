@@ -1,120 +1,171 @@
 # CtxKeep
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![status](https://img.shields.io/badge/status-MVP%20%2F%20pre--1.0-orange)
+![status](https://img.shields.io/badge/status-v0.2%20%2F%20pre--1.0-orange)
 
-CtxKeep keeps `CLAUDE.md`, `AGENTS.md`, and `.ai/manifest.md` in sync with your actual codebase — automatically, incrementally, and without ever touching content you wrote by hand.
+CtxKeep keeps your project's agent context and documentation (`AGENTS.md`, `ARCHITECTURE.md`, per-module docs, and any markdown file you point it at) in sync with the code. It does this automatically and incrementally, and it never touches text you wrote yourself.
+
+It works on web, mobile, backend, and AI projects: TypeScript/JavaScript (including React/JSX), Python, and Dart/Flutter are indexed down to symbols and imports. Swift, Kotlin, Java, Go, Rust, C#, and more are tracked at the file level.
 
 ## Why CtxKeep exists
 
-AI coding assistants lose track of a project in two ways: context rot, where understanding degrades as a codebase grows past what fits usefully in a context window, and session amnesia, where every new session starts cold unless context is deliberately re-supplied. Most attempts to fix this — CLAUDE.md, AGENTS.md, memory banks, manifests — add a third problem on top: artifact drift, where those hand-maintained files quietly go stale or start contradicting each other because nothing keeps them in sync with the code automatically. CtxKeep exists to close that gap by keeping those artifacts accurate on its own, so the other two problems have less room to recur.
+Coding agents lose track of a project in two ways. Context rot sets in as the codebase outgrows what fits usefully in a context window. Session amnesia means every session starts cold. Hand-written `AGENTS.md`/`CLAUDE.md`/architecture docs help, but they drift: nothing keeps them true as the code changes. Generic LLM-written context files don't fix this either. [Research shows](https://the-decoder.com/context-files-for-coding-agents-often-dont-help-and-may-even-hurt-performance/) they mostly restate what an agent can read for itself, and they cost more than they help.
 
-It parses your repo with [tree-sitter](https://tree-sitter.github.io/tree-sitter/), tracks what's changed since the last commit it looked at, and patches only the parts of those files that need it — leaving everything else, including any hand-written prose sharing the same file, byte-for-byte untouched.
+CtxKeep takes the opposite approach:
 
-This is the MVP described in `docs/ctxkeep-mvp-build-spec.md`. If you want the reasoning behind a specific design choice, check `DECISIONS.md` first — it's a running log of what was chosen, what was rejected, and why.
+- **It states only facts it can back up.** It reads commands from your `package.json`/`Makefile` and frameworks from declared dependencies. It builds module dependencies from resolved imports. Conventions appear only after a human confirms them. When coverage is partial, it says so.
+- **It keeps the always-loaded file small and stable.** `AGENTS.md` changes only when the project's structure changes, not every time a file is added. Detail lives in on-demand docs (`ARCHITECTURE.md`, `.ai/manifest.md`).
+- **It patches incrementally.** Content hashes tell it exactly which files changed, committed or not. It re-parses only those and rewrites only the regions whose content actually differs.
+- **It keeps your text safe.** Generated text lives between markers. Anything outside them is never modified. A region you edited by hand is never overwritten without `--force`.
 
-## Requirements
+## Install
 
-- Node.js ≥ 20 (npm ships with Node, no separate install needed)
-- A git repository (CtxKeep reads git history for change detection; it works on TypeScript, JavaScript, and Python files)
-
-## Setup
-
-```bash
-git clone https://github.com/danish-119/ctxkeep.git   # get the source
-cd ctxkeep
-npm install                                            # install dependencies
-npm run build                                          # compile TypeScript to dist/ (only needed if you plan to run the built CLI directly — see below)
-```
-
-Everything below uses the per-command npm scripts (`npm run try`, `npm run init`, `npm run analyze`, `npm run sync`) — each runs the TypeScript source directly via `tsx`, no build step required. Pass arguments after `--`, e.g. `npm run try -- /path/to/some/repo`. Once you've run `npm run build`, the compiled CLI also works directly as `node dist/cli/index.js <command>`.
-
-## The 4-command demo loop
-
-This is the entire MVP loop end to end, run against any real repo.
-
-### 1. `ctxkeep try` — see the value with zero setup
+CtxKeep is a command-line tool that needs **Node.js 20 or newer**. It works in any repository, whatever language the project itself is written in.
 
 ```bash
-$ npm run try -- /path/to/some/repo   # preview only — reads the repo, writes nothing
+npx ctxkeep try                 # preview in any repo; writes nothing
+npm install --save-dev ctxkeep  # or: npm install -g ctxkeep
 ```
 
-Walks the repo, parses every `.ts`/`.tsx`/`.js`/`.py` file, and prints the `CLAUDE.md` it *would* generate as a diff against nothing. **Writes zero files.** No config, no `.ctxkeep/` directory, nothing on disk changes — this is the "see if it's worth adopting" command.
+> Not yet published to npm. Until then, build it from source:
+> `git clone https://github.com/danish-119/ctxkeep.git && cd ctxkeep && npm install && npm run build`, then run `node dist/cli/index.js <command> /path/to/repo` (or `npm link` to get a `ctxkeep` command).
 
-### 2. `ctxkeep init && ctxkeep analyze` — adopt it for real
+Native dependencies: `tree-sitter` ships prebuilt binaries for macOS (arm64/x64), Linux x64, and Windows x64. On other platforms (e.g. Linux arm64), `npm install` compiles them and needs a C/C++ toolchain.
+
+## Quick start
 
 ```bash
-$ npm run init -- /path/to/some/repo      # one-time: scaffold .ctxkeep/config.yaml
-Wrote .ctxkeep/config.yaml
-Detected typescript across 8 module(s), 36 file(s).
-Next: run `ctxkeep analyze` to populate the graph.
-
-$ npm run analyze -- /path/to/some/repo   # full baseline scan: builds the graph and writes CLAUDE.md/AGENTS.md/manifest
-Analyzed 36 file(s).
-Wrote 8 module(s) and 132 symbol(s) to .ctxkeep/graph.sqlite
-Detected 16 convention candidate(s) (existing confirm/reject decisions preserved).
-Compiled 14 region(s): 14 written, 0 unchanged (no-op).
+ctxkeep try                       # 1. see exactly what would be written, as a diff
+ctxkeep init                      # 2. write .ctxkeep/config.yaml (commented; commit it)
+ctxkeep analyze --dry-run         # 3. review
+ctxkeep analyze                   #    ...and write
+# ...edit code, as usual...
+ctxkeep sync                      # 4. patch only what changed
+ctxkeep sync --check              # 5. in CI / pre-commit: exit 1 if any doc is stale
 ```
 
-`init` scaffolds `.ctxkeep/config.yaml` (committed to git — it's config, not build state). `analyze` does the full baseline scan: populates `.ctxkeep/graph.sqlite` (gitignored — it's regenerable, like `node_modules`) and writes `CLAUDE.md`, `AGENTS.md`, and `.ai/manifest.md` with `<!-- ctxkeep:start:... / ctxkeep:end -->` marker regions.
+Real `sync` output after adding a new module (`src/api`) and editing a file in an existing one:
 
-Run `analyze` again right now with no code changes — it will report `0 written` and touch nothing. That's not an incidental property; it's the thing the whole compiler is built around (see `docs/ctxkeep-mvp-build-spec.md` §5).
-
-### 3. Edit some code, commit it
-
-```bash
-$ echo 'export function newThing() {}' >> src/somemodule/file.ts   # any code change
-$ git add -A && git commit -m "add newThing"                       # any normal commit
+```text
+Source changes: 1 modified, 1 added in src/api, src/utils — re-parsed 2 files.
+Artifacts:
+  updated    AGENTS.md        updated layout
+  updated    ARCHITECTURE.md  updated architecture
+  updated    .ai/manifest.md  updated module:src/utils; added module:src/api
 ```
 
-Any normal commit. CtxKeep doesn't need to know about this in advance.
+Had the edit only added a function to `src/utils`, the only change would have been the `module:src/utils` region of `.ai/manifest.md`.
 
-### 4. `ctxkeep sync` — patch only what changed
+## What gets generated
 
-```bash
-$ npm run sync -- /path/to/some/repo   # patch only what changed since the last checkpoint
-Resynced module "somemodule" (5 symbol(s)).
-Resynced module "othermodule" (3 symbol(s)).
-HEAD is 5f2a91c. 2/8 module(s) resynced.
-Compiled 14 region(s): 2 written, 12 unchanged (no-op).
+By default, CtxKeep maintains these files:
+
+| File | Loaded | Contents |
+|---|---|---|
+| `AGENTS.md` | Always, by the agent | Project and stack (each fact cites its manifest), commands, layout, confirmed conventions. The single source of truth for every coding agent. |
+| `ARCHITECTURE.md` | On demand | Module dependency graph (Mermaid plus a table with import counts), declared entry points, most-imported files. |
+| `.ai/manifest.md` | On demand | One card per module: description, size, dependencies, exported symbols ranked by how often they're imported. |
+| `CLAUDE.md`, `GEMINI.md` | Only for tools that need them | One import line pointing at `AGENTS.md`. See below. |
+
+### Works with every coding agent
+
+`AGENTS.md` is read natively by Codex, Cursor, GitHub Copilot, Windsurf, Zed, Cline, Jules, and others. Two tools need a pointer file instead. CtxKeep writes it in that tool's own import syntax, so there is never a second copy that can drift:
+
+| Tool | File | Content |
+|---|---|---|
+| Claude Code | `CLAUDE.md` | `@AGENTS.md` |
+| Gemini CLI | `GEMINI.md` | `@./AGENTS.md` |
+
+Pointer files are created only when the repo already uses that tool (a `CLAUDE.md` or `.claude/`, a `GEMINI.md` or `.gemini/`), or when you list it in config (`agents: [claude, gemini]`). An existing hand-written `CLAUDE.md` keeps its text; the import is added below it. Tool-specific rule files (`.cursor/rules`, `.github/copilot-instructions.md`, …) are left alone.
+
+## Maintaining your own docs
+
+Every artifact is a path plus an ordered list of **sections**: named, code-grounded blocks of generated text. Adding a new kind of doc is a config change, not a code change.
+
+```yaml
+# .ctxkeep/config.yaml
+artifacts:
+  - path: AGENTS.md
+    sections: [overview, commands, layout, conventions]
+  - path: ARCHITECTURE.md
+    title: Architecture
+    sections: [architecture, key-files]
+  - path: DESIGN.md                    # no `sections`: "fill mode"
+  - path: docs/modules/{module}.md     # one design doc per module
+    modules: ["src/*"]
+    sections: [module-summary, module-api, module-files]
+  - path: "{module_dir}/AGENTS.md"     # nested, folder-scoped agent context
+    modules: ["src/*"]
+    sections: [module-summary, module-api]
 ```
 
-`sync` runs `git diff <last-checkpoint-sha>..HEAD` to see what changed, maps changed files to modules (folder = module), re-parses only the stale ones, and recompiles only their regions.
+Sections available: `overview`, `commands`, `layout`, `conventions`, `architecture`, `key-files`, `key-abstractions`, `agents-import`, and the per-module `module`, `module-summary`, `module-api`, `module-files`.
 
-**Note on the very first `sync`:** `analyze` never writes to the `checkpoints` table — only `sync` does. So the *first* `sync` you run has no prior checkpoint to diff against, and per the "no checkpoint = everything stale" rule (build spec §4 Milestone 4), it resyncs **every** module once, to establish a baseline. That's expected, not a bug — you'll see every module listed above. Make a *second* edit and commit, then run `sync` again:
+- **With `sections`, the list is authoritative.** Missing sections are inserted next to their neighbours. A known section you remove from the list is removed from the file, unless you edited it by hand.
+- **Without `sections` (fill mode),** CtxKeep fills only the markers you place yourself, exactly where you place them. This is how you embed generated facts in a hand-written `DESIGN.md`:
 
-```bash
-$ echo 'export function anotherThing() {}' >> src/somemodule/file.ts   # a second code change
-$ git add -A && git commit -m "add anotherThing"
-$ npm run sync -- /path/to/some/repo                                   # re-sync — only the stale module gets touched
-Resynced module "somemodule" (6 symbol(s)).
-HEAD is 8a1c204. 1/8 module(s) resynced.
-Compiled 14 region(s): 1 written, 13 unchanged (no-op).
-```
+  ```md
+  ## Domain model
 
-*Now* only `somemodule` is stale. Check `git diff` on `CLAUDE.md`: the change is scoped to exactly the `module:somemodule` region — every other region, including `othermodule`'s, the manifest, and `AGENTS.md`, is byte-identical. This was verified directly against a real fixture repo while writing this README (two real `sync` runs, second one scoped to one module out of two) — not a hypothetical.
+  <!-- ctxkeep:start:key-abstractions -->
+  <!-- ctxkeep:end:key-abstractions -->
+  ```
 
-## Other commands
+- **`{module}` / `{module_dir}`** expand to one file per module, and `modules:` filters which ones. When a module disappears, its file is deleted if nothing human-written remains in it.
+
+Modules are inferred from folders (`src/<name>`, `packages/<name>`, `lib/<name>`, …) and can be overridden in config, as can ignored paths. **Every option, section, and default is described in [docs/configuration.md](docs/configuration.md).**
+
+## Safety model
+
+- **Markers carry their own hash:** `<!-- ctxkeep:start:layout sha=1a2b3c4d5e6f -->`. On any clone, without any local state, CtxKeep can tell whether you edited a region since it was generated. If you did, `sync` reports a conflict, leaves the region alone, and exits 1. `--force` overwrites it.
+- Text outside markers is never modified, and the file's line endings (LF or CRLF) are preserved.
+- Writes are atomic per file (temp file plus rename).
+- Malformed markers stop work on that file with the file and line number. CtxKeep never guesses where a region ends.
+- `--dry-run` shows a unified diff and writes nothing, not even the graph. `try` doesn't even create `.ctxkeep/`.
+- `ctxkeep rollback` restores every generated region to its content at git `HEAD`, and leaves human text alone.
+
+## Commands
 
 | Command | What it does |
 |---|---|
-| `ctxkeep review conventions [path]` | Interactively confirm/reject/skip up to the top 10 pending inferred conventions (by confidence). Confirmed ones appear in `CLAUDE.md`'s Conventions section; rejected ones never resurface; skipped ones reappear next run. |
-| `ctxkeep rollback [path]` | Reverts every CtxKeep-owned region back to its content as of the last git commit (`HEAD`), without touching human-owned content elsewhere in the same file. See `DECISIONS.md` for exactly what this does and doesn't undo. |
+| `ctxkeep try [path]` | Preview of everything `analyze` would write. No config needed, writes nothing. |
+| `ctxkeep init [path]` | Writes a commented `.ctxkeep/config.yaml` with agent tools detected from the repo. |
+| `ctxkeep analyze [path] [--dry-run] [--force]` | Full re-parse; use after upgrading CtxKeep or changing config. |
+| `ctxkeep sync [path] [--dry-run] [--check] [--force]` | Incremental update. `--check` exits 1 if anything is stale (for CI). |
+| `ctxkeep review conventions [path]` | Confirm, reject, or skip detected conventions (at least 3 samples, at least 80% agreement). |
+| `ctxkeep rollback [path] [--dry-run]` | Restore generated regions to `HEAD`. |
+
+Exit codes: `0` on success; `1` on an error, on a hand-edit conflict, or (with `--check`) when any artifact is out of date.
+
+`.ctxkeep/config.yaml` should be committed. `.ctxkeep/graph.sqlite` is a regenerable cache and is ignored via `.ctxkeep/.gitignore`. The one thing it holds that can't be regenerated is your convention review decisions.
+
+Upgrading from v0.1? Run `ctxkeep analyze --dry-run` and read [docs/upgrading-to-v0.2.md](docs/upgrading-to-v0.2.md). Your config and convention decisions carry over, and there's a one-time diff in the generated files.
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/configuration.md](docs/configuration.md) | Every config option, section, template token, module rule, and default |
+| [docs/upgrading-to-v0.2.md](docs/upgrading-to-v0.2.md) | What changes when moving from v0.1 |
+| [docs/how-it-works.md](docs/how-it-works.md) | Contributors: the pipeline, change detection, marker format, and how to add sections, tools, and languages |
+| [DECISIONS.md](DECISIONS.md) | Why each design choice was made, and what was rejected |
+| [docs/ctxkeep-architecture-plan.md](docs/ctxkeep-architecture-plan.md) | The long-term vision (with notes where v0.2 deliberately diverges) |
 
 ## Development
 
 ```bash
-npm run typecheck   # tsc --noEmit
-npm test             # vitest run — includes the golden-file suite in test/fixtures/
-npm run build        # compile to dist/
+npm install
+npm run typecheck
+npm test                 # unit + integration + golden-file suites
+npm run build
 ```
 
-The golden-file suite (`test/goldenFiles.spec.ts`) spawns the actual CLI as a subprocess against small fixture repos in `test/fixtures/` and compares the output against checked-in snapshots — it's the one place in the test suite that exercises the real `init`/`analyze` pipeline the way a user actually invokes it, rather than calling internal functions directly.
+The golden-file suite (`test/goldenFiles.spec.ts`) runs the real CLI against six fixture repos: plain TS, plain Python, mixed, a React/Vite web app, a Flutter app with Android/iOS shells, and a Python AI service. It compares every generated file byte-for-byte. After an intentional output change, regenerate the snapshots with `UPDATE_GOLDEN=1 npx vitest run test/goldenFiles.spec.ts` and review the diff. [docs/how-it-works.md](docs/how-it-works.md) covers the internals.
 
-## What's deliberately not here yet
+## Not here yet
 
-This is an MVP, not the full system described in `docs/ctxkeep-architecture-plan.md`. No LLM calls anywhere in the default path, no plugin system, no adapters beyond Claude, no VS Code extension, no MCP server, and no real symbol-level impact analysis (change detection is module-level: "any file in a module changed" marks the whole module stale, not a precise dependency graph). `docs/ctxkeep-mvp-build-spec.md` §6 has the full, current list of what's cut and what breaks if you forget it's cut.
+LLM-written prose (CtxKeep makes no LLM calls), an MCP server, watch mode and git-hook installation, a VS Code extension, symbol-level indexing for Swift, Kotlin, Java, Go, and Rust, and token-scored pruning (fixed caps are used instead). See `DECISIONS.md` for why each is deferred.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT. See `LICENSE`.

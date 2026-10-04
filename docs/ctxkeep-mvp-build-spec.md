@@ -1,6 +1,8 @@
 # CtxKeep — MVP Build Specification
 ### A concrete, buildable Phase 0 → Phase 1 spec (companion to `ctxkeep-architecture-plan.md`)
 
+> **Status (2026-10-04):** this spec is complete and historical. It describes the v0.1 MVP. The current system (v0.2) is described in [`how-it-works.md`](how-it-works.md) and [`configuration.md`](configuration.md), with the reasons for each change in `DECISIONS.md`. Notably, CLAUDE.md is no longer a primary output (§0, §1), and the `checkpoints`/`artifact_bindings` tables in §3 no longer exist.
+>
 > This document exists to answer one question: **what do I actually build first, in what order, with what tools, to prove the idea works?** It intentionally ignores most of the full architecture doc (adapters, plugins, VS Code extension, MCP server, enterprise tier). Nothing below should take more than a few weeks for one developer to reach a working prototype.
 
 ---
@@ -220,6 +222,8 @@ The `NO_OP` path is not an optimization to add later — it's the thing that mak
 ## 6. Where MVP Deliberately Cuts Corners (and what breaks if you forget they're cut)
 
 > **Revisited 2026-07-11, end of Milestone 6.** Reality had diverged from this table in one significant way (token budget) and a few gaps discovered during Milestones 4-6 weren't reflected at all. Corrected below; see `DECISIONS.md` for the fuller reasoning behind each of the newer rows.
+
+> **v0.2 status (2026-10-04).** These rows are now resolved: module removal/rename handling; whole-module resync (sync is now file-granular, by content hash); unbounded module regions (fixed caps, with detail moved to on-demand docs); convention re-validation. Rollback still restores from HEAD only. Token budgeting is still fixed caps rather than scored pruning. See the v0.2 entries in `DECISIONS.md`.
 
 | Corner cut | Real risk if forgotten | Fix, later phase |
 |---|---|---|
