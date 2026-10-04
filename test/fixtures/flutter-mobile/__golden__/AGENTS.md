@@ -10,11 +10,11 @@
 _Sections between `ctxkeep` markers are generated from the code by CtxKeep and refreshed by `ctxkeep sync` — edit outside them._
 <!-- ctxkeep:end:overview -->
 
-<!-- ctxkeep:start:commands sha=d72bedf56650 -->
+<!-- ctxkeep:start:commands sha=b583a593c1aa -->
 ## Commands
 
-- `flutter pub get` — standard Flutter command (`pubspec.yaml`)
 - `flutter test` — standard Flutter command (`pubspec.yaml`)
+- `flutter pub get` — standard Flutter command (`pubspec.yaml`)
 - `flutter run` — standard Flutter command (`pubspec.yaml`)
 <!-- ctxkeep:end:commands -->
 

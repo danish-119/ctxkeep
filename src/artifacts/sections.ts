@@ -39,7 +39,7 @@ export interface SectionDef {
 }
 
 const MAX_LAYOUT_ROWS = 40;
-const MAX_COMMANDS = 25;
+const MAX_COMMANDS = 15;
 const MAX_MODULE_SYMBOLS = 40;
 const MAX_KEY_FILES = 10;
 const MAX_ABSTRACTIONS = 20;
@@ -120,13 +120,26 @@ const overview: SectionDef = {
   },
 };
 
+/** The commands an agent reaches for first, in this order; everything else keeps its manifest order after them. */
+const CORE_COMMANDS = ['install', 'dev', 'start', 'build', 'test', 'lint', 'typecheck', 'type-check', 'check', 'format'];
+
+function rankCommands(cmds: ContextModel['facts']['commands']): ContextModel['facts']['commands'] {
+  const rank = (command: string) => {
+    // The task name is the last word: `npm run build`, `cd web && pnpm test`, `make lint`, `flutter test`.
+    const name = command.split(/\s+/).pop() ?? '';
+    const i = CORE_COMMANDS.indexOf(name);
+    return i === -1 ? CORE_COMMANDS.length : i;
+  };
+  return cmds.map((cmd, i) => ({ cmd, i })).sort((a, b) => rank(a.cmd.command) - rank(b.cmd.command) || a.i - b.i).map((x) => x.cmd);
+}
+
 const commands: SectionDef = {
   name: 'commands',
   scope: 'project',
   summary: 'Runnable commands defined by the project (package.json scripts, Makefile targets).',
   render({ model }) {
     const lines = ['## Commands', ''];
-    const cmds = model.facts.commands;
+    const cmds = rankCommands(model.facts.commands);
     if (cmds.length === 0) {
       lines.push('_No commands found: no package.json scripts, Makefile targets, or recognised toolchain manifest._');
       return lines.join('\n');
