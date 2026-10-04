@@ -2,9 +2,9 @@
 
 [![npm](https://img.shields.io/npm/v/ctxkeep)](https://www.npmjs.com/package/ctxkeep)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![status](https://img.shields.io/badge/status-v0.2%20%2F%20pre--1.0-orange)
+![status](https://img.shields.io/badge/status-v0.3%20%2F%20pre--1.0-orange)
 
-CtxKeep keeps your project's agent context and documentation (`AGENTS.md`, `ARCHITECTURE.md`, per-module docs, and any markdown file you point it at) in sync with the code. It does this automatically and incrementally, and it never touches text you wrote yourself.
+CtxKeep keeps your project's agent context and documentation (`AGENTS.md`, `ARCHITECTURE.md`, per-module docs, and any markdown file you point it at) in sync with the code. It does this automatically and incrementally, and it never touches text you wrote yourself. It also **checks** that text: when your README or AGENTS.md mentions a command, file or function that no longer exists, `ctxkeep check` points to the exact line, and your coding agent can fix it.
 
 It works on web, mobile, backend, and AI projects: TypeScript/JavaScript (including React/JSX), Python, and Dart/Flutter are indexed down to symbols and imports. Swift, Kotlin, Java, Go, Rust, C#, and more are tracked at the file level.
 
@@ -18,6 +18,7 @@ CtxKeep takes the opposite approach:
 - **It keeps the always-loaded file small and stable.** `AGENTS.md` changes only when the project's structure changes, not every time a file is added. Detail lives in on-demand docs (`ARCHITECTURE.md`, `.ai/manifest.md`).
 - **It patches incrementally.** Content hashes tell it exactly which files changed, committed or not. It re-parses only those and rewrites only the regions whose content actually differs.
 - **It keeps your text safe.** Generated text lives between markers. Anything outside them is never modified. A region you edited by hand is never overwritten without `--force`.
+- **It catches your text when it goes stale.** The non-obvious knowledge only humans can write is what helps agents most, and it's what silently rots. `ctxkeep check` verifies every command, path, link and code name it mentions against the code.
 
 ## Install
 
@@ -165,7 +166,9 @@ You review the resulting diff like any other change.
 | `ctxkeep review conventions [path]` | Confirm, reject, or skip detected conventions (at least 3 samples, at least 80% agreement). |
 | `ctxkeep rollback [path] [--dry-run]` | Restore generated regions to `HEAD`. |
 
-Exit codes: `0` on success; `1` on an error, on a hand-edit conflict, or (with `--check`) when any artifact is out of date.
+Run `ctxkeep` with no arguments for an overview, and `ctxkeep <command> --help` for a command's options.
+
+Exit codes: `0` on success; `1` on an error, on a hand-edit conflict, when `ctxkeep check` finds stale or wrong docs, or (with `sync --check`) when any generated section is out of date.
 
 `.ctxkeep/config.yaml` should be committed. `.ctxkeep/graph.sqlite` is a regenerable cache and is ignored via `.ctxkeep/.gitignore`. The one thing it holds that can't be regenerated is your convention review decisions.
 
@@ -194,7 +197,7 @@ The golden-file suite (`test/goldenFiles.spec.ts`) runs the real CLI against six
 
 ## Not here yet
 
-LLM-written prose (CtxKeep makes no LLM calls), an MCP server, watch mode and git-hook installation, a VS Code extension, symbol-level indexing for Swift, Kotlin, Java, Go, and Rust, and token-scored pruning (fixed caps are used instead). See `DECISIONS.md` for why each is deferred.
+LLM-written prose (CtxKeep makes no LLM calls; your own coding agent fixes the text `check` flags), an MCP server (next), watch mode and git-hook installation, a VS Code extension, symbol-level indexing for Swift, Kotlin, Java, Go, and Rust, and token-scored pruning (fixed caps are used instead). See `DECISIONS.md` for why each is deferred.
 
 ## License
 
