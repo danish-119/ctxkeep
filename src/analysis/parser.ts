@@ -394,7 +394,11 @@ function extractPython(root: SyntaxNode): Extracted {
 const MAX_SUMMARY = 160;
 
 function firstSentence(raw: string): string | null {
-  const text = raw.replace(/\s+/g, ' ').trim();
+  const text = raw
+    .replace(/\{@link\s+([^}\s|]+)[^}]*\}/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!text || /(\bcopyright\b|\blicen[cs]e\b|eslint-|@ts-|prettier-ignore)/i.test(text)) return null;
   const sentence = text.match(/^(.+?[.!?])(\s|$)/)?.[1] ?? text;
   return sentence.length > MAX_SUMMARY ? `${sentence.slice(0, MAX_SUMMARY - 1).trimEnd()}…` : sentence;

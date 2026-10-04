@@ -339,6 +339,36 @@ describe('agent pointer files (tool-agnostic)', () => {
   });
 });
 
+describe('repos holding several apps', () => {
+  it('finds nested projects: their stack and commands (with the cd they need) and per-app modules', () => {
+    const root = repo({
+      'README.md': '# Monorepo\n',
+      'web/package.json': JSON.stringify({ name: 'web', scripts: { dev: 'next dev' }, dependencies: { next: '15', react: '19' } }),
+      'web/src/app/page.tsx': 'export default function Page() {\n  return null;\n}\n',
+      'web/src/lib/api.ts': 'export function get() {}\n',
+      'mobile/pubspec.yaml': 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n',
+      'mobile/lib/features/auth/login.dart': 'class LoginScreen {}\n',
+      'test/fixtures/demo/package.json': '{"name":"fixture"}',
+      'test/fixtures/demo/a.ts': 'export const a = 1;\n',
+    });
+    analyze(root);
+    const agents = read(root, 'AGENTS.md');
+    expect(agents).toContain('Next.js, React (`web/package.json`)');
+    expect(agents).toContain('Flutter (`mobile/pubspec.yaml`)');
+    expect(agents).toContain('- `cd web && npm run dev` — runs `next dev`');
+    expect(agents).toContain('- `cd mobile && flutter test`');
+    expect(agents).toContain('| `web/src/app/` |');
+    expect(agents).toContain('| `mobile/lib/features/auth/` |');
+    expect(agents).not.toContain('fixture'); // fixtures with manifests are not projects
+  });
+
+  it('strips markdown links from module descriptions (they would break once copied)', () => {
+    const root = repo({ ...BASE, 'src/api/README.md': '# API\n\nRoutes for [the app](../../README.md), see ![logo](x.png) docs.\n' });
+    analyze(root);
+    expect(read(root, 'AGENTS.md')).toContain('| Routes for the app, see docs. |');
+  });
+});
+
 describe('determinism', () => {
   it('two fresh analyses of the same tree produce byte-identical artifacts', () => {
     const a = repo(BASE);

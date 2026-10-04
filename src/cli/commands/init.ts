@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
 import { listSourceFiles } from '../../analysis/walker';
-import { moduleIdForPath, isTestPath } from '../../analysis/modules';
+import { createModuleResolver, isTestPath } from '../../analysis/modules';
 import { languageForPath, LANGUAGE_LABELS, type Language } from '../../analysis/languages';
-import { detectProjectFacts } from '../../analysis/stack';
+import { detectAllFacts, findProjectRoots } from '../../analysis/projects';
 import { configExists, configPath, ensureCtxkeepGitignore, writeConfigText } from '../../config/io';
 import { SECTIONS } from '../../artifacts/sections';
 import { detectPointerTools, NATIVE_AGENTS_MD_TOOLS, OTHER_RULE_FILES, toolById } from '../../artifacts/agents';
@@ -99,7 +99,8 @@ export function registerInitCommand(program: Command): void {
       }
 
       const files = listSourceFiles(targetDir);
-      const facts = detectProjectFacts(targetDir);
+      const projectRoots = findProjectRoots(targetDir);
+      const facts = detectAllFacts(targetDir, projectRoots);
       const fillDocs = FILL_MODE_CANDIDATES.filter((p) => fs.existsSync(path.join(targetDir, p)));
 
       const agents = detectPointerTools(targetDir);
@@ -111,7 +112,8 @@ export function registerInitCommand(program: Command): void {
         const lang = languageForPath(f)!;
         languages.set(lang, (languages.get(lang) ?? 0) + 1);
       }
-      const modules = new Set(files.map((f) => moduleIdForPath(f)));
+      const moduleOf = createModuleResolver(files, [], projectRoots);
+      const modules = new Set(files.map(moduleOf));
       const langSummary = [...languages.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([l]) => LANGUAGE_LABELS[l])

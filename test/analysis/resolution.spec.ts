@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readPathAliases, resolveImport, type ResolveContext } from '../../src/analysis/imports';
-import { isTestPath, moduleIdForPath, moduleMatches, moduleSlug } from '../../src/analysis/modules';
+import { createModuleResolver, findDominantFolders, isTestPath, moduleIdForPath, moduleMatches, moduleSlug } from '../../src/analysis/modules';
 import { tempDir, writeFiles } from '../helpers';
 
 const NO_CTX: ResolveContext = { aliases: [], dartPackage: null };
@@ -78,6 +78,52 @@ describe('module inference', () => {
     expect(moduleIdForPath('lib/screens/home.dart')).toBe('lib/screens');
     expect(moduleIdForPath('app/models.py')).toBe('app');
     expect(moduleIdForPath('test/fixtures/x/src/a.ts')).toBe('test');
+  });
+
+  it('descends through container folders at any depth (feature-first layouts)', () => {
+    expect(moduleIdForPath('src/features/cart/ui/Cart.tsx')).toBe('src/features/cart');
+    expect(moduleIdForPath('lib/features/auth/screens/login.dart')).toBe('lib/features/auth');
+    expect(moduleIdForPath('src/features/index.ts')).toBe('src/features');
+  });
+
+  it('restarts inference inside nested projects (folders with their own manifest)', () => {
+    const roots = ['web', 'mobile', 'web/packages/ui'];
+    expect(moduleIdForPath('web/src/app/page.tsx', [], roots)).toBe('web/src/app');
+    expect(moduleIdForPath('web/next.config.ts', [], roots)).toBe('web');
+    expect(moduleIdForPath('mobile/lib/features/auth/x.dart', [], roots)).toBe('mobile/lib/features/auth');
+    expect(moduleIdForPath('web/packages/ui/src/Button.tsx', [], roots)).toBe('web/packages/ui/src');
+    expect(moduleIdForPath('docs/x.ts', [], roots)).toBe('docs');
+  });
+
+  it('splits a folder holding most of the source (a single Python package) one level deeper', () => {
+    const files = [
+      'app/__init__.py', 'app/agent.py', 'app/cli.py', 'app/config.py',
+      'app/memory/store.py', 'app/memory/recall.py',
+      'app/tools/shell.py', 'app/tools/browser.py', 'app/tools/files.py',
+      'tests/test_agent.py',
+    ];
+    const resolve = createModuleResolver(files);
+    expect(resolve('app/agent.py')).toBe('app');
+    expect(resolve('app/memory/store.py')).toBe('app/memory');
+    expect(resolve('app/tools/shell.py')).toBe('app/tools');
+    expect(resolve('tests/test_agent.py')).toBe('tests');
+    // Not split: too small, or no subfolders to split into, or the user drew the boundary.
+    expect(findDominantFolders(['app/a.py', 'app/b/c.py', 'app/d/e.py'])).toEqual(new Set());
+    expect(findDominantFolders(files.filter((f) => !f.includes('/memory/') && !f.includes('/tools/')).concat(['app/x.py', 'app/y.py', 'app/z.py', 'app/w.py']))).toEqual(new Set());
+    expect(findDominantFolders(files, [{ path: 'app/**' }])).toEqual(new Set());
+  });
+
+  it('passes through single-child folder chains (JVM package paths) to where the tree branches', () => {
+    const base = 'src/main/java/com/showroom';
+    const files = [`${base}/Main.java`, `${base}/model/Car.java`, `${base}/model/Customer.java`, `${base}/dao/CarDao.java`, `${base}/ui/MainFrame.java`];
+    // Too small to restructure: stays where folder inference puts it.
+    expect(createModuleResolver(files)(`${base}/model/Car.java`)).toBe('src/main');
+    // With enough files, the branching package itself splits into its subpackages.
+    const more = [...files, ...[1, 2, 3, 4].map((n) => `${base}/model/M${n}.java`), ...[1, 2].map((n) => `${base}/dao/D${n}.java`)];
+    const resolveMore = createModuleResolver(more);
+    expect(resolveMore(`${base}/model/Car.java`)).toBe(`${base}/model`);
+    expect(resolveMore(`${base}/dao/CarDao.java`)).toBe(`${base}/dao`);
+    expect(resolveMore(`${base}/Main.java`)).toBe(base);
   });
 
   it('lets config overrides define boundaries (first match wins)', () => {

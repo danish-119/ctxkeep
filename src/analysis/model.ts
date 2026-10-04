@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { isParsedLanguage, LANGUAGE_LABELS, type Language } from './languages';
-import { isTestPath, moduleIdForPath, moduleLabel, ROOT_MODULE, type ModuleOverride } from './modules';
+import { createModuleResolver, isTestPath, moduleLabel, ROOT_MODULE, type ModuleOverride } from './modules';
 import { readDartPackage, readPathAliases, resolveImport } from './imports';
-import { detectProjectFacts, type ProjectFacts } from './stack';
+import type { ProjectFacts } from './stack';
+import { detectAllFacts } from './projects';
 import { getFileRecords, listImports, listSymbols, type ParseStatus, type StoredSymbol } from '../graph/store';
 import type { SymbolKind } from './types';
 
@@ -71,6 +72,8 @@ export interface ContextModel {
   testFileCount: number;
   /** Count of resolved local import edges between files, non-test sources only. */
   resolvedImportCount: number;
+  /** Module id for any path (including deleted ones), using exactly this run's rules. */
+  moduleOf: (relPath: string) => string;
 }
 
 function countBy<T>(items: T[], key: (t: T) => Language): [Language, number][] {
@@ -92,7 +95,14 @@ function readmeSummary(rootDir: string, moduleId: string): string | null {
       .map((p) => p.trim())
       .find((p) => p && !p.startsWith('#') && !p.startsWith('![') && !p.startsWith('<') && !p.startsWith('[!['));
     if (!paragraph) return null;
-    const text = paragraph.replace(/\s+/g, ' ').replace(/[*_`]/g, '');
+    // Links are relative to the README's folder, so they'd break once copied into another file: keep only their text.
+    const text = paragraph
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/\s+/g, ' ')
+      .replace(/[*_`]/g, '')
+      .trim();
+    if (!text) return null;
     const sentence = text.match(/^(.+?[.!?])(\s|$)/)?.[1] ?? text;
     return sentence.length > 160 ? `${sentence.slice(0, 159).trimEnd()}…` : sentence;
   }
@@ -119,14 +129,23 @@ function moduleDescription(rootDir: string, moduleId: string, files: FileInfo[])
   return ENTRY_BASENAMES.includes(base) ? entry.docSummary : null;
 }
 
-export function buildModel(db: Database.Database, rootDir: string, overrides: ModuleOverride[] = []): ContextModel {
-  const facts = detectProjectFacts(rootDir);
-  const records = [...getFileRecords(db).values()].sort((a, b) => a.path.localeCompare(b.path));
+export function buildModel(
+  db: Database.Database,
+  rootDir: string,
+  overrides: ModuleOverride[] = [],
+  projectRoots: readonly string[] = [],
+): ContextModel {
+  const facts = detectAllFacts(rootDir, projectRoots);
+  // Generated/minified files are tracked for change detection only; nothing in an artifact describes them.
+  const records = [...getFileRecords(db).values()]
+    .filter((r) => r.parseStatus !== 'generated')
+    .sort((a, b) => a.path.localeCompare(b.path));
 
+  const moduleOf = createModuleResolver(records.map((r) => r.path), overrides, projectRoots);
   const files: FileInfo[] = records.map((r) => ({
     path: r.path,
     language: r.language,
-    moduleId: moduleIdForPath(r.path, overrides),
+    moduleId: moduleOf(r.path),
     isTest: isTestPath(r.path),
     parseStatus: r.parseStatus,
     docSummary: r.docSummary,
@@ -236,5 +255,6 @@ export function buildModel(db: Database.Database, rootDir: string, overrides: Mo
     languages: countBy(sourceFiles, (f) => f.language),
     testFileCount: files.length - sourceFiles.length,
     resolvedImportCount,
+    moduleOf,
   };
 }

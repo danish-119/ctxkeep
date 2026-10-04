@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { refreshGraph, type RefreshResult } from './analysis/refresh';
 import { buildModel, type ContextModel } from './analysis/model';
 import { detectConventions } from './analysis/conventions';
-import { moduleIdForPath } from './analysis/modules';
+import { findProjectRoots } from './analysis/projects';
 import { loadConfig } from './config/io';
 import type { Config } from './config/schema';
 import { graphPath, openGraph, openMemoryGraph } from './graph/db';
@@ -89,7 +89,8 @@ export function openFreshGraph(rootDir: string): Database.Database {
   const db = openGraph(rootDir);
   try {
     refreshGraph(db, rootDir, { extraIgnores: config.ignore });
-    syncConventions(db, detectConventions(buildModel(db, rootDir, config.modules)));
+    const projectRoots = findProjectRoots(rootDir, config.ignore);
+    syncConventions(db, detectConventions(buildModel(db, rootDir, config.modules, projectRoots)));
     return db;
   } catch (err) {
     db.close();
@@ -106,7 +107,8 @@ export function runPipeline(options: PipelineOptions): PipelineReport {
   const db = mode === 'try' ? openMemoryGraph() : preview ? openPreviewGraph(rootDir) : openGraph(rootDir);
   try {
     const refresh = refreshGraph(db, rootDir, { full: mode !== 'sync', extraIgnores: config.ignore });
-    const model = buildModel(db, rootDir, config.modules);
+    const projectRoots = findProjectRoots(rootDir, config.ignore);
+    const model = buildModel(db, rootDir, config.modules, projectRoots);
 
     syncConventions(db, detectConventions(model));
     const conventions = listEmittableConventions(db);
@@ -117,7 +119,7 @@ export function runPipeline(options: PipelineOptions): PipelineReport {
     if (!preview) writeArtifacts(rootDir, results);
 
     const { added, modified, deleted } = refresh.changes;
-    const changedModules = [...new Set([...added, ...modified, ...deleted].map((p) => moduleIdForPath(p, config.modules)))].sort();
+    const changedModules = [...new Set([...added, ...modified, ...deleted].map((p) => model.moduleOf(p)))].sort();
 
     return {
       config,
