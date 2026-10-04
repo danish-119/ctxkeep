@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { afterAll } from 'vitest';
 
 export const REPO_ROOT = path.resolve(__dirname, '..');
 export const FIXTURES_DIR = path.join(__dirname, 'fixtures');
@@ -15,18 +16,29 @@ export interface CliResult {
 }
 
 /** Runs the real CLI as a subprocess, exactly the way a user invokes it. */
-export function runCli(args: string[], input?: string): CliResult {
+export function runCli(args: string[], input?: string, env: Record<string, string> = {}): CliResult {
   const result = spawnSync(process.execPath, [TSX_CLI, CLI_ENTRY, ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     input,
+    env: { ...process.env, ...env },
   });
   return { stdout: result.stdout, stderr: result.stderr, status: result.status ?? -1 };
 }
 
+const created: string[] = [];
+
+/** A fresh temp directory, removed automatically after the test file that created it finishes. */
 export function tempDir(prefix = 'ctxkeep-test-'): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  created.push(dir);
+  return dir;
 }
+
+// Registered once per test file that imports these helpers.
+afterAll(() => {
+  for (const dir of created.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 /**
  * Copies a fixture into a temp directory, keeping the fixture's own folder
